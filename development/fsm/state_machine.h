@@ -5,8 +5,8 @@
 #include <variant>
 #include <cstddef>
 
-#include "State.h"
-#include "Transition.h"
+#include <fsm/state.h>
+#include <fsm/transition.h>
 
 namespace fsm
 {
@@ -190,6 +190,56 @@ namespace fsm
     };
 
     // ============================================================
+    // Compile-time: destination states must be in variant
+    // ============================================================
+
+    template <typename S, typename Variant>
+    struct is_state_in_variant;
+
+    template <typename S, typename... States>
+    struct is_state_in_variant<S, std::variant<States...>>
+        : std::bool_constant<(std::is_same_v<S, States> || ...)> {};
+
+    template <typename Variant, typename T>
+    struct validate_dst_state
+    {
+        static constexpr bool value = true; // fallback (should not happen)
+    };
+
+    // external transition
+    template <typename Variant, typename Src, typename Ev, typename Dst, typename Act, typename Guard>
+    struct validate_dst_state<Variant, transition<Src, Ev, Dst, Act, Guard>>
+    {
+        static constexpr bool value =
+            is_state_in_variant<Dst, Variant>::value;
+    };
+
+    // default transition
+    template <typename Variant, typename Src, typename Dst, typename Act>
+    struct validate_dst_state<Variant, default_transition<Src, Dst, Act>>
+    {
+        static constexpr bool value =
+            is_state_in_variant<Dst, Variant>::value;
+    };
+
+    // internal transition → no destination state
+    template <typename Variant, typename Src, typename Ev, typename Act>
+    struct validate_dst_state<Variant, internal_transition<Src, Ev, Act>>
+    {
+        static constexpr bool value = true;
+    };
+
+    template <typename Variant, typename Table>
+    struct validate_transition_table_destinations;
+
+    template <typename Variant, typename... Ts>
+    struct validate_transition_table_destinations<Variant, transition_table<Ts...>>
+    {
+        static constexpr bool value =
+            (validate_dst_state<Variant, Ts>::value && ...);
+    };
+
+    // ============================================================
     // state_machine
     // ============================================================
 
@@ -204,7 +254,7 @@ namespace fsm
     {
     public:
         using derived_type = DerivedMachine;
-        using variant_type = std::variant<States...>;
+        using variant_type = std::variant<std::monostate, States...>;
         using table_type   = TransitionTable;
 
         static_assert(transition_table_unique_src_event<table_type>::value,
@@ -216,7 +266,12 @@ namespace fsm
                     "  - transition: guard(M&, Ev const&) -> bool, action(M&, Ev const&) -> void\n"
                     "  - internal_transition: action(M&, Ev const&) -> void\n"
                     "  - default_transition: action(M&) -> void");
-
+        
+        static_assert(
+            validate_transition_table_destinations<variant_type, table_type>::value,
+            "Transition table error: A transition destination state is not part of the machine state list."
+        );
+        
         static_assert((std::is_same_v<InitialState, States> || ...),
                       "InitialState must be in the machine state list.");
 
@@ -230,7 +285,7 @@ namespace fsm
                       "Default transition rule violated:\n"
                       "  (1) A state can have at most ONE default transition.\n"
                       "  (2) If a state has a default transition, it must have NO other outgoing transitions.\n");
-
+        
         void initiate()
         {
             current_.template emplace<InitialState>(derived());
@@ -393,7 +448,7 @@ namespace fsm
         }
 
     private:
-        variant_type current_{InitialState{derived()}}; // default-constructed, will be properly constructed on initiate()
+        variant_type current_{std::monostate{}};
         bool initiated_{false};
     };
 
