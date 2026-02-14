@@ -276,7 +276,7 @@ namespace fsm
     template <typename A>
     struct is_ancestor<A, void> : std::false_type {};
 
-    // General case: A is ancestor of B if A==B OR A is ancestor of parent(B)
+    // General case: A is ancestor of B if A==B OR A is ancestor of parent(B)   
     template <typename A, typename B>
     struct is_ancestor
         : std::conditional<
@@ -316,7 +316,84 @@ namespace fsm
     template <typename A, typename B>
     using lca_t = typename lca<A, B>::type;
 
+    // ============================================================
+    // (HSM) Detect parent states from the machine state list
+    // ============================================================
 
+    template <typename P, typename... States>
+    struct has_child_in_list
+        : std::integral_constant<bool, (std::is_same<typename parent_of<States>::type, P>::value || ...)> {};
+
+    template <typename S, typename... States>
+    constexpr bool is_parent_v = has_child_in_list<S, States...>::value;
+
+    // ============================================================
+    // (HSM) Find default child: default_transition<Parent, Child>
+    // Safe: never touches T::dst unless T is a default_transition
+    // ============================================================
+
+    template <typename P, typename Table>
+    struct default_child { using type = void; };
+
+    template <typename P, typename... Ts>
+    struct default_child<P, transition_table<Ts...>>
+    {
+    private:
+        // pick_default<P, Acc, T>: if T is default_transition and src==P -> Acc becomes T::dst
+        template <typename Acc, typename T, bool IsDef = is_default_transition<T>::value>
+        struct pick_default
+        {
+            using type = Acc; // non-default rows: keep accumulator, never refer to T::dst
+        };
+
+        template <typename Acc, typename T>
+        struct pick_default<Acc, T, true>
+        {
+            using type = typename std::conditional<
+                std::is_same<typename T::src, P>::value,
+                typename T::dst,
+                Acc
+            >::type;
+        };
+
+        template <typename Acc, typename... Rows>
+        struct fold;
+
+        template <typename Acc>
+        struct fold<Acc> { using type = Acc; };
+
+        template <typename Acc, typename R0, typename... Rest>
+        struct fold<Acc, R0, Rest...>
+        {
+            using next = typename pick_default<Acc, R0>::type;
+            using type = typename fold<next, Rest...>::type;
+        };
+
+    public:
+        using type = typename fold<void, Ts...>::type;
+    };
+
+    template <typename P, typename Table>
+    using default_child_t = typename default_child<P, Table>::type;
+
+    // ============================================================
+    // (HSM) Parent initial-substate rule:
+    // If P is a parent => exactly one default_transition<P, C> and parent_of<C> == P
+    // ============================================================
+
+    template <typename P, typename Table, typename... AllStates>
+    struct parent_initial_ok
+    {
+        static constexpr bool is_parent = is_parent_v<P, AllStates...>;
+        using C = default_child_t<P, Table>;
+
+        static constexpr bool value =
+            !is_parent
+            ? true
+            : (count_default_transitions<P, Table>::value == 1u) &&
+            (!std::is_same<C, void>::value) &&
+            std::is_same<typename parent_of<C>::type, P>::value;
+    };
 
     // ============================================================
     // state_machine
@@ -364,6 +441,10 @@ namespace fsm
                       "Default transition rule violated:\n"
                       "  (1) A state can have at most ONE default transition.\n"
                       "  (2) If a state has a default transition, it must have NO other outgoing transitions.\n");
+        
+        static_assert((parent_initial_ok<States, table_type, States...>::value && ...),
+                    "HSM rule violated: every parent must have exactly one default_transition<Parent, Child>, "
+                    "and Child must be a direct child (parent_of<Child> == Parent).");
         
         void initiate()
         {
