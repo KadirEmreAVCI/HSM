@@ -250,11 +250,20 @@ namespace fsm
     // (HSM) Hierarchy meta: depth / ancestor / LCA
     // ============================================================
 
+    // Root depth
+    template <typename S, typename Parent = typename parent_of<S>::type>
+    struct depth_impl;
+
     template <typename S>
-    struct depth : std::integral_constant<std::size_t,
-        std::is_same<typename parent_of<S>::type, void>::value
-            ? 0u
-            : (depth<typename parent_of<S>::type>::value + 1u)> {};
+    struct depth_impl<S, void> : std::integral_constant<std::size_t, 0u> {};
+
+    // Non-root depth
+    template <typename S, typename Parent>
+    struct depth_impl : std::integral_constant<std::size_t, depth_impl<Parent>::value + 1u> {};
+
+    // Public depth<S>
+    template <typename S>
+    struct depth : depth_impl<S> {};
 
     template <typename S>
     constexpr std::size_t depth_v = depth<S>::value;
@@ -396,6 +405,49 @@ namespace fsm
     };
 
     // ============================================================
+    // (HSM) External same-level rule: depth(src) == depth(dst)
+    // ============================================================
+
+    template <typename T>
+    struct external_same_level_ok : std::true_type {};
+
+    template <typename S, typename E, typename D, typename A, typename G>
+    struct external_same_level_ok<transition<S, E, D, A, G>>
+        : std::integral_constant<bool, (depth_v<S> == depth_v<D>)> {};
+
+    template <typename Table>
+    struct validate_external_same_level;
+
+    template <typename... Ts>
+    struct validate_external_same_level<transition_table<Ts...>>
+        : std::integral_constant<bool, (external_same_level_ok<Ts>::value && ...)> {};
+
+    // ============================================================
+    // (HSM) Default transitions must be Parent -> DirectChild
+    // i.e. parent_of<Child> == Parent  (implies not same-level)
+    // ============================================================
+
+    template <typename T, bool = is_default_transition<T>::value>
+    struct default_direct_child_ok : std::true_type {};
+
+    template <typename T>
+    struct default_direct_child_ok<T, true>
+        : std::integral_constant<bool,
+            std::is_same<
+                typename parent_of<typename is_default_transition<T>::dst>::type,
+                typename is_default_transition<T>::src
+            >::value
+        > {};
+
+    template <typename Table>
+    struct validate_default_direct_child;
+
+    template <typename... Ts>
+    struct validate_default_direct_child<transition_table<Ts...>>
+        : std::integral_constant<bool, (default_direct_child_ok<Ts>::value && ...)> {};
+
+
+    // ============================================================
     // state_machine
     // ============================================================
 
@@ -445,6 +497,14 @@ namespace fsm
         static_assert((parent_initial_ok<States, table_type, States...>::value && ...),
                     "HSM rule violated: every parent must have exactly one default_transition<Parent, Child>, "
                     "and Child must be a direct child (parent_of<Child> == Parent).");
+
+        static_assert(validate_external_same_level<table_type>::value,
+                    "HSM rule violated: external transitions must be between states at the same hierarchy depth.");
+
+        static_assert(validate_default_direct_child<table_type>::value,
+                    "HSM rule violated: default_transition<Parent, Child> must target a DIRECT child "
+                    "(parent_of<Child> == Parent). Default transitions cannot be same-level.");
+
         
         void initiate()
         {
@@ -590,9 +650,6 @@ namespace fsm
             if constexpr (is_default_transition<T0>::value &&
                           std::is_same_v<typename T0::src, CurState>)
             {
-                // entry already ran for CurState
-                maybe_call_on_exit(curObj);
-
                 static_assert(std::is_invocable_v<typename T0::act, derived_type&>,
                               "Default transition action must be callable as: act(Machine&).");
                 typename T0::act{}(derived());

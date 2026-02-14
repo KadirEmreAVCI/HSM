@@ -1,5 +1,6 @@
 #ifndef TRANSITION_H
 #define TRANSITION_H
+
 #include <type_traits>
 
 namespace fsm
@@ -44,7 +45,7 @@ namespace fsm
     };
 
     // -------------------------
-    // Internal transition (UPDATED):
+    // Internal transition:
     // - no guard
     // - no exit/entry
     // - no state change
@@ -59,12 +60,13 @@ namespace fsm
     };
 
     // -------------------------
-    // Default transition (completion):
+    // Default transition (HSM "initial substate"):
     // - no event
     // - no guard
-    // - applied automatically after entering a state
-    // - order (entry already ran):
-    //     src.on_exit -> action(machine) -> dst.on_entry
+    // - applied automatically after entering a (parent) state
+    // - HSM semantics: Parent remains active; do NOT exit parent
+    // - order (entry of parent already ran):
+    //     action(machine) -> enter child
     // -------------------------
     template <typename SrcState, typename DstState, typename Action = no_default_action>
     struct default_transition
@@ -83,20 +85,43 @@ namespace fsm
     // -------------------------
     // Traits
     // -------------------------
+
+    // Default transition trait
+    // Provides:
+    //   is_default_transition<T>::value
+    //   is_default_transition<T>::src, dst, act (only when value==true)
     template <typename T>
     struct is_default_transition : std::false_type {};
-    template <typename S, typename D, typename A>
-    struct is_default_transition<default_transition<S, D, A>> : std::true_type {};
 
+    template <typename S, typename D, typename A>
+    struct is_default_transition<default_transition<S, D, A>> : std::true_type
+    {
+        using src = S;
+        using dst = D;
+        using act = A;
+    };
+
+    // Internal transition trait
+    // Provides:
+    //   is_internal_transition<T>::value
+    //   is_internal_transition<T>::src, ev, act (only when value==true)
     template <typename T>
     struct is_internal_transition : std::false_type {};
-    template <typename S, typename E, typename A>
-    struct is_internal_transition<internal_transition<S, E, A>> : std::true_type {};
 
+    template <typename S, typename E, typename A>
+    struct is_internal_transition<internal_transition<S, E, A>> : std::true_type
+    {
+        using src = S;
+        using ev  = E;
+        using act = A;
+    };
+
+    // has_event<T>: true if row has nested type T::ev
     template <typename T, typename = void>
     struct has_event : std::false_type {};
+
     template <typename T>
     struct has_event<T, std::void_t<typename T::ev>> : std::true_type {};
 }
 
-#endif // TRANSITION_H  
+#endif // TRANSITION_H

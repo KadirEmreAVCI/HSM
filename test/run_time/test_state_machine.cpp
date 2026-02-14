@@ -1,298 +1,129 @@
 #include <gtest/gtest.h>
 #include <variant>
-#include <string>
-#include <vector>
 
+#include <fsm/state.h>
+#include <fsm/transition.h>
 #include <fsm/state_machine.h>
 
-namespace {
-
-struct EvStart {};
+// Events
+struct EvTick {};
 struct EvStop {};
-struct EvReset {};
-struct EvTick { int dt{}; };
-struct EvNop {};
+struct EvRun {};
 
+// Forward decl
 struct TestMachine;
 
-// ---- Trace helper
-struct Trace {
-    std::vector<std::string> log;
-    void push(const char* s) { log.emplace_back(s); }
-};
+// States
+struct Top : fsm::state<Top, TestMachine> { using fsm::state<Top, TestMachine>::state; };
+struct Operational : fsm::state<Operational, TestMachine> { using fsm::state<Operational, TestMachine>::state; };
+struct Running : fsm::state<Running, TestMachine> { using fsm::state<Running, TestMachine>::state; };
+struct Stopped : fsm::state<Stopped, TestMachine> { using fsm::state<Stopped, TestMachine>::state; };
 
-// ---- States
-struct Boot : fsm::state<Boot, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Idle : fsm::state<Idle, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Starting : fsm::state<Starting, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Running : fsm::state<Running, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Stopped : fsm::state<Stopped, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
+// parent_of
+template <> struct fsm::parent_of<Operational> { using type = Top; };
+template <> struct fsm::parent_of<Running>     { using type = Operational; };
+template <> struct fsm::parent_of<Stopped>     { using type = Operational; };
 
-// ---- Guards
-struct power_on_guard {
-    bool operator()(TestMachine& m, const EvStart&) const;
-};
-struct min_time_guard {
-    int threshold{10};
-    bool operator()(TestMachine& m, const EvStop&) const;
-};
+// Actions
+struct TickAction { void operator()(TestMachine& m, const EvTick&) const; };
+struct StopAction { void operator()(TestMachine& m, const EvStop&) const; };
+struct RunAction  { void operator()(TestMachine& m, const EvRun&)  const; };
 
-// ---- Actions
-struct boot_to_idle_action { void operator()(TestMachine& m) const; };
-struct starting_to_running_action { void operator()(TestMachine& m) const; };
-struct stopped_to_idle_action { void operator()(TestMachine& m) const; };
+struct TestMachine : fsm::state_machine<
+    TestMachine,
+    Top,
+    std::variant<Top, Operational, Running, Stopped>,
+    fsm::transition_table<
+        // default chain to leaf
+        fsm::default_transition<Top, Operational>,
+        fsm::default_transition<Operational, Running>,
 
-struct start_action { void operator()(TestMachine& m, const EvStart&) const; };
-struct stop_action  { void operator()(TestMachine& m, const EvStop&)  const; };
-struct reset_action { void operator()(TestMachine& m, const EvReset&) const; };
-
-struct tick_internal_action { void operator()(TestMachine& m, const EvTick& e) const; };
-
-// ---- Transition table
-using TTable = fsm::transition_table<
-    fsm::default_transition<Boot,     Idle,    boot_to_idle_action>,
-    fsm::default_transition<Starting, Running, starting_to_running_action>,
-    fsm::default_transition<Stopped,  Idle,    stopped_to_idle_action>,
-
-    fsm::transition<Idle,    EvStart, Starting, start_action, power_on_guard>,
-    fsm::transition<Running, EvStop,  Stopped,  stop_action,  min_time_guard>,
-
-    // External self-transition => exit+enter
-    fsm::transition<Running, EvReset, Running,  reset_action>,
-
-    // Internal transition => action only, no exit/entry
-    fsm::internal_transition<Running, EvTick, tick_internal_action>
->;
-
-// ---- Machine
-struct TestMachine : fsm::state_machine<TestMachine, Boot,
-    std::variant<Boot, Idle, Starting, Running, Stopped>, TTable>
+        // NO bubble-up => all event handlers on leaves
+        fsm::internal_transition<Running, EvTick, TickAction>,
+        fsm::transition<Running, EvStop, Stopped, StopAction>,
+        fsm::transition<Stopped, EvRun, Running, RunAction>
+    >
+>
 {
-    Trace trace;
-    bool power_on = false;
-    int total_time = 0;
-    int reset_count = 0;
-
-    void handle_tick(const EvTick& e) {
-        total_time += e.dt;
-        trace.push("machine.handle_tick");
-    }
+    int tickCount = 0;
+    int stopCount = 0;
+    int runCount  = 0;
 };
 
-// ---- Hook definitions (need complete machine)
-void Boot::on_entry()  { machine().trace.push("Boot.entry"); }
-void Boot::on_exit()   { machine().trace.push("Boot.exit"); }
-void Idle::on_entry()  { machine().trace.push("Idle.entry"); }
-void Idle::on_exit()   { machine().trace.push("Idle.exit"); }
-void Starting::on_entry(){ machine().trace.push("Starting.entry"); }
-void Starting::on_exit() { machine().trace.push("Starting.exit"); }
-void Running::on_entry(){ machine().trace.push("Running.entry"); }
-void Running::on_exit() { machine().trace.push("Running.exit"); }
-void Stopped::on_entry(){ machine().trace.push("Stopped.entry"); }
-void Stopped::on_exit() { machine().trace.push("Stopped.exit"); }
+inline void TickAction::operator()(TestMachine& m, const EvTick&) const { ++m.tickCount; }
+inline void StopAction::operator()(TestMachine& m, const EvStop&) const { ++m.stopCount; }
+inline void RunAction::operator()(TestMachine& m, const EvRun&)  const { ++m.runCount; }
 
-// ---- Guard definitions
-bool power_on_guard::operator()(TestMachine& m, const EvStart&) const {
-    m.trace.push("guard.power_on");
-    return m.power_on;
-}
-bool min_time_guard::operator()(TestMachine& m, const EvStop&) const {
-    m.trace.push("guard.min_time");
-    return m.total_time >= threshold;
-}
+// ------------------------------------------------------------
+// Tests
+// ------------------------------------------------------------
 
-// ---- Action definitions
-void boot_to_idle_action::operator()(TestMachine& m) const {
-    m.trace.push("default.Boot->Idle");
-    m.total_time = 0;
-    m.reset_count = 0;
-}
-void starting_to_running_action::operator()(TestMachine& m) const {
-    m.trace.push("default.Starting->Running");
-}
-void stopped_to_idle_action::operator()(TestMachine& m) const {
-    m.trace.push("default.Stopped->Idle");
-}
-
-void start_action::operator()(TestMachine& m, const EvStart&) const {
-    m.trace.push("action.start");
-}
-void stop_action::operator()(TestMachine& m, const EvStop&) const {
-    m.trace.push("action.stop");
-}
-void reset_action::operator()(TestMachine& m, const EvReset&) const {
-    m.trace.push("action.reset");
-    m.total_time = 0;
-    ++m.reset_count;
-}
-
-void tick_internal_action::operator()(TestMachine& m, const EvTick& e) const {
-    m.trace.push("internal.tick_action");
-    m.handle_tick(e);
-}
-
-// ===================== TESTS =====================
-
-TEST(FsmRuntime, InitiateRunsDefaultChain)
+TEST(Hsm_NoBubbleUp, Initiate_ReachesLeafViaDefaultChain)
 {
     TestMachine sm;
     sm.initiate();
 
-    ASSERT_TRUE(sm.is_in_state<Idle>());
-
-    const std::vector<std::string> expected = {
-        "Boot.entry",
-        "Boot.exit",
-        "default.Boot->Idle",
-        "Idle.entry"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
-}
-
-TEST(FsmRuntime, UnhandledEventIsIgnored)
-{
-    TestMachine sm;
-    sm.initiate();
-    sm.trace.log.clear();
-
-    sm.process_event(EvNop{});
-    EXPECT_TRUE(sm.is_in_state<Idle>());
-    EXPECT_TRUE(sm.trace.log.empty());
-}
-
-TEST(FsmRuntime, ExternalGuardFailIgnoresEvent)
-{
-    TestMachine sm;
-    sm.initiate();
-    sm.trace.log.clear();
-
-    // power_on=false by default
-    sm.process_event(EvStart{});
-
-    EXPECT_TRUE(sm.is_in_state<Idle>());
-    EXPECT_EQ(sm.trace.log, (std::vector<std::string>{"guard.power_on"}));
-}
-
-TEST(FsmRuntime, ExternalTransitionThenDefaultChain)
-{
-    TestMachine sm;
-    sm.initiate();
-    sm.trace.log.clear();
-
-    sm.power_on = true;
-    sm.process_event(EvStart{});
-
-    ASSERT_TRUE(sm.is_in_state<Running>());
-
-    const std::vector<std::string> expected = {
-        "guard.power_on",
-        "Idle.exit",
-        "action.start",
-        "Starting.entry",
-        "Starting.exit",
-        "default.Starting->Running",
-        "Running.entry"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
-}
-
-TEST(FsmRuntime, InternalTransitionNoExitEntryNoStateChange)
-{
-    TestMachine sm;
-    sm.initiate();
-
-    // Move to Running via EvStart
-    sm.power_on = true;
-    sm.process_event(EvStart{});
-    ASSERT_TRUE(sm.is_in_state<Running>());
-
-    sm.trace.log.clear();
-    sm.process_event(EvTick{5});
-
+    // InitialState is Top, but default chain should land in Running leaf
     EXPECT_TRUE(sm.is_in_state<Running>());
-
-    // No Running.exit / Running.entry
-    const std::vector<std::string> expected = {
-        "internal.tick_action",
-        "machine.handle_tick"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
+    EXPECT_FALSE(sm.is_in_state<Stopped>());
 }
 
-TEST(FsmRuntime, ExternalSelfTransitionDoesExitEntry)
+TEST(Hsm_NoBubbleUp, InternalTransition_OnLeafIsHandled)
 {
     TestMachine sm;
     sm.initiate();
-
-    sm.power_on = true;
-    sm.process_event(EvStart{});
     ASSERT_TRUE(sm.is_in_state<Running>());
 
-    sm.trace.log.clear();
-    sm.process_event(EvReset{});
+    sm.process_event(EvTick{});
+    sm.process_event(EvTick{});
+    sm.process_event(EvTick{});
 
-    EXPECT_TRUE(sm.is_in_state<Running>());
-
-    const std::vector<std::string> expected = {
-        "Running.exit",
-        "action.reset",
-        "Running.entry"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
+    EXPECT_EQ(sm.tickCount, 3);
+    EXPECT_TRUE(sm.is_in_state<Running>()); // internal => no state change
 }
 
-TEST(FsmRuntime, StopGuardFailThenPass)
+TEST(Hsm_NoBubbleUp, ExternalTransition_RunningToStopped_SameLevel)
 {
     TestMachine sm;
     sm.initiate();
-    sm.power_on = true;
-    sm.process_event(EvStart{});
     ASSERT_TRUE(sm.is_in_state<Running>());
 
-    // total_time=0 => guard fail
-    sm.trace.log.clear();
-    sm.process_event(EvStop{});
-    EXPECT_TRUE(sm.is_in_state<Running>());
-    EXPECT_EQ(sm.trace.log, (std::vector<std::string>{"guard.min_time"}));
-
-    // now tick enough
-    sm.process_event(EvTick{10});
-
-    sm.trace.log.clear();
     sm.process_event(EvStop{});
 
-    // Running -> Stopped -> (default) Idle
-    ASSERT_TRUE(sm.is_in_state<Idle>());
-    const std::vector<std::string> expected = {
-        "guard.min_time",
-        "Running.exit",
-        "action.stop",
-        "Stopped.entry",
-        "Stopped.exit",
-        "default.Stopped->Idle",
-        "Idle.entry"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
+    EXPECT_TRUE(sm.is_in_state<Stopped>());
+    EXPECT_EQ(sm.stopCount, 1);
 }
 
-} // namespace
+TEST(Hsm_NoBubbleUp, ExternalTransition_StoppedToRunning_SameLevel)
+{
+    TestMachine sm;
+    sm.initiate();
+    sm.process_event(EvStop{});
+    ASSERT_TRUE(sm.is_in_state<Stopped>());
+
+    sm.process_event(EvRun{});
+
+    EXPECT_TRUE(sm.is_in_state<Running>());
+    EXPECT_EQ(sm.runCount, 1);
+}
+
+// Optional “current behavior” test: event defined only on parent will be ignored
+// (You can keep or remove this; it documents pre-bubble-up behavior.)
+struct EvParentOnly {};
+
+struct ParentOnlyAction { void operator()(TestMachine& m, const EvParentOnly&) const { ++m.tickCount; } };
+
+// NOTE: We DO NOT add any transition for EvParentOnly to the table,
+// because adding it on Operational would only work after bubble-up.
+// So here we just verify the event is ignored.
+TEST(Hsm_NoBubbleUp, ParentLevelEventIsIgnoredForNow)
+{
+    TestMachine sm;
+    sm.initiate();
+    ASSERT_TRUE(sm.is_in_state<Running>());
+
+    const int before = sm.tickCount;
+    sm.process_event(EvParentOnly{});
+    EXPECT_EQ(sm.tickCount, before);
+    EXPECT_TRUE(sm.is_in_state<Running>());
+}

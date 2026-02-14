@@ -32,3 +32,6 @@ add_compile_fail_test(ct_default_action_bad_sig             default_action_bad_s
 add_compile_fail_test(dst_not_in_variant                    dst_not_in_variant.cpp)
 add_compile_fail_test(parent_missing_default                parent_missing_default.cpp)
 add_compile_fail_test(parent_default_not_direct_child       parent_default_not_direct_child.cpp)
+add_compile_fail_test(external_cross_level                  external_cross_level.cpp)
+add_compile_fail_test(external_parent_to_child              external_parent_to_child.cpp)
+add_compile_fail_test(default_not_direct_child              default_not_direct_child.cpp)
