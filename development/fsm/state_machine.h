@@ -240,6 +240,85 @@ namespace fsm
     };
 
     // ============================================================
+    // (HSM) Parent relation (user-specializable)
+    // Default: root has no parent
+    // ============================================================
+    template <class S>
+    struct parent_of { using type = void; };
+
+    // ============================================================
+    // (HSM) Hierarchy meta: depth / ancestor / LCA
+    // ============================================================
+
+    template <typename S>
+    struct depth : std::integral_constant<std::size_t,
+        std::is_same<typename parent_of<S>::type, void>::value
+            ? 0u
+            : (depth<typename parent_of<S>::type>::value + 1u)> {};
+
+    template <typename S>
+    constexpr std::size_t depth_v = depth<S>::value;
+
+    template <typename S, std::size_t K>
+    struct ascend { using type = typename ascend<typename parent_of<S>::type, K - 1u>::type; };
+
+    template <typename S>
+    struct ascend<S, 0u> { using type = S; };
+
+    template <typename S, std::size_t K>
+    using ascend_t = typename ascend<S, K>::type;
+
+    // Primary template declaration (no definition here)
+    template <typename A, typename B>
+    struct is_ancestor;
+
+    // Special-case: reached root (void) without match
+    template <typename A>
+    struct is_ancestor<A, void> : std::false_type {};
+
+    // General case: A is ancestor of B if A==B OR A is ancestor of parent(B)
+    template <typename A, typename B>
+    struct is_ancestor
+        : std::conditional<
+            std::is_same<A, B>::value,
+            std::true_type,
+            is_ancestor<A, typename parent_of<B>::type>
+        >::type {};
+
+    template <typename A, typename B>
+    constexpr bool is_ancestor_v = is_ancestor<A, B>::value;
+
+    template <typename A, typename B>
+    struct lca
+    {
+    private:
+        static constexpr std::size_t da = depth_v<A>;
+        static constexpr std::size_t db = depth_v<B>;
+
+        using A1 = ascend_t<A, (da > db ? (da - db) : 0u)>;
+        using B1 = ascend_t<B, (db > da ? (db - da) : 0u)>;
+
+        template <typename X, typename Y>
+        struct lca_same_depth
+        {
+            using type = typename std::conditional<
+                std::is_same<X, Y>::value,
+                X,
+                typename lca_same_depth<typename parent_of<X>::type,
+                                        typename parent_of<Y>::type>::type
+            >::type;
+        };
+
+    public:
+        using type = typename lca_same_depth<A1, B1>::type;
+    };
+
+    template <typename A, typename B>
+    using lca_t = typename lca<A, B>::type;
+
+
+
+    // ============================================================
     // state_machine
     // ============================================================
 
