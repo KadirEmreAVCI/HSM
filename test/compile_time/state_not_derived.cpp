@@ -1,11 +1,10 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
 struct NotAState
 {
-    // Does NOT derive from fsm::state<NotAState, M>
 };
 
 using Table = fsm::transition_table<>;

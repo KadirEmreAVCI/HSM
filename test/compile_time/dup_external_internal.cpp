@@ -1,5 +1,5 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
@@ -12,7 +12,7 @@ struct internal_act { void operator()(M&, const Ev&) const {} };
 
 using BadTable = fsm::transition_table<
     fsm::transition<S1, Ev, S2>,
-    fsm::internal_transition<S1, Ev, internal_act> // duplicate (S1,Ev)
+    fsm::internal_transition<S1, Ev, internal_act>
 >;
 
 struct M : fsm::state_machine<M, S1, std::variant<S1, S2>, BadTable> {};

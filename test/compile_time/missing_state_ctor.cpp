@@ -1,11 +1,10 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
 struct BadState : fsm::state<BadState, M>
 {
-    // missing: using state::state;
 };
 
 using Table = fsm::transition_table<>;

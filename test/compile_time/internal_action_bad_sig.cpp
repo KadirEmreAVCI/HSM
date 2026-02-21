@@ -1,13 +1,11 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
 struct S : fsm::state<S, M> { using state::state; };
-
 struct Ev {};
 
-// WRONG: takes only (Machine&) but internal requires (Machine&, const Ev&)
 struct bad_internal_act
 {
     void operator()(M&) const {}

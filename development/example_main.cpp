@@ -6,110 +6,288 @@
 #include <fsm/state_machine.h>
 
 // Events
-struct EvTick {};
-struct EvStop {};
-struct EvRun {};
+// --------------------------------------------------
 
-// Machine forward decl
-struct DemoMachine;
+struct evJCRAktif{};
+struct evTaarruzVar{};
+struct evTaarruzYok{};
+struct evAktifTeknikDurumuDegerlendir{};
 
+struct evARABaslaJCRDen{
+    int iTekHedefEtModu = 0;
+};
+
+struct evARADurJCRDen{
+    int iAITID = 0;
+};
+
+// --------------------------------------------------
+// Machine forward declaration
+// --------------------------------------------------
+
+struct ATUJCRDenetleyici;
+
+// --------------------------------------------------
 // States
-// Hierarchy:
-//   Top
-//     Operational
-//       Running
-//       Stopped
-struct Top : fsm::state<Top, DemoMachine>
+// --------------------------------------------------
+
+struct Bos : fsm::state<Bos, ATUJCRDenetleyici>
 {
-    using fsm::state<Top, DemoMachine>::state;
-    void on_entry() { std::cout << "Top::on_entry\n"; }
-    void on_exit()  { std::cout << "Top::on_exit\n"; }
+    using fsm::state<Bos, ATUJCRDenetleyici>::state;
+    void on_entry();
+    void on_exit();
 };
 
-struct Operational : fsm::state<Operational, DemoMachine>
+struct JCRAcilis : fsm::state<JCRAcilis, ATUJCRDenetleyici>
 {
-    using fsm::state<Operational, DemoMachine>::state;
-    void on_entry() { std::cout << "Operational::on_entry\n"; }
-    void on_exit()  { std::cout << "Operational::on_exit\n"; }
+    using fsm::state<JCRAcilis, ATUJCRDenetleyici>::state;
+    void on_entry();
+    void on_exit();
 };
 
-struct Running : fsm::state<Running, DemoMachine>
+struct JCRAktif : fsm::state<JCRAktif, ATUJCRDenetleyici>
 {
-    using fsm::state<Running, DemoMachine>::state;
-    void on_entry() { std::cout << "Running::on_entry\n"; }
-    void on_exit()  { std::cout << "Running::on_exit\n"; }
+    using fsm::state<JCRAktif, ATUJCRDenetleyici>::state;
+    void on_entry();
+    void on_exit();
 };
 
-struct Stopped : fsm::state<Stopped, DemoMachine>
+struct Bekleme : fsm::state<Bekleme, ATUJCRDenetleyici>
 {
-    using fsm::state<Stopped, DemoMachine>::state;
-    void on_entry() { std::cout << "Stopped::on_entry\n"; }
-    void on_exit()  { std::cout << "Stopped::on_exit\n"; }
+    using fsm::state<Bekleme, ATUJCRDenetleyici>::state;
+    void on_entry();
+    void on_exit();
 };
 
-// parent_of specializations
-template <> struct fsm::parent_of<Operational> { using type = Top; };
-template <> struct fsm::parent_of<Running>     { using type = Operational; };
-template <> struct fsm::parent_of<Stopped>     { using type = Operational; };
+struct Taarruz : fsm::state<Taarruz, ATUJCRDenetleyici>
+{
+    using fsm::state<Taarruz, ATUJCRDenetleyici>::state;
+    void on_entry();
+    void on_exit();
+};
 
+// --------------------------------------------------
+// Parent specializations
+// --------------------------------------------------
+
+template <>
+struct fsm::parent_of<Bekleme> { using type = JCRAktif; };
+
+template <>
+struct fsm::parent_of<Taarruz> { using type = JCRAktif; };
+
+// --------------------------------------------------
 // Actions
-struct TickAction
+// --------------------------------------------------
+
+struct PrintLogJCRAktifAction
 {
-    void operator()(DemoMachine& m, const EvTick&) const;
+    void operator()(ATUJCRDenetleyici&, const evJCRAktif&) const;
 };
 
-struct StopAction
+struct ARABaslaJCRDenAction
 {
-    void operator()(DemoMachine& m, const EvStop&) const;
+    void operator()(ATUJCRDenetleyici&, const evARABaslaJCRDen&) const;
 };
 
-struct RunAction
+struct ARADurJCRDenAction
 {
-    void operator()(DemoMachine& m, const EvRun&) const;
+    void operator()(ATUJCRDenetleyici&, const evARADurJCRDen&) const;
 };
 
+struct AktifTeknikDurumuDegerlendir
+{
+    void operator()(ATUJCRDenetleyici&, const evAktifTeknikDurumuDegerlendir&) const;
+};
+
+// --------------------------------------------------
+// Guard
+// --------------------------------------------------
+
+struct TaarruzGuard
+{
+    bool operator()(ATUJCRDenetleyici&, const evTaarruzVar&) const;
+};
+
+// --------------------------------------------------
 // Machine
-struct DemoMachine : fsm::state_machine<
-    DemoMachine,
-    Top, // Initial is parent; default chain must lead to leaf
-    std::variant<Top, Operational, Running, Stopped>,
-    fsm::transition_table<
-        // Default chain (must be Parent -> direct child)
-        fsm::default_transition<Top, Operational>,
-        fsm::default_transition<Operational, Running>,
+// --------------------------------------------------
 
-        // NO bubble-up yet => put event handlers on leaf states only
-        fsm::internal_transition<Running, EvTick, TickAction>,
-        fsm::transition<Running, EvStop, Stopped, StopAction>,
-        fsm::transition<Stopped, EvRun, Running, RunAction>
+struct ATUJCRDenetleyici :
+    fsm::state_machine<
+        ATUJCRDenetleyici,
+        Bos,
+        std::variant<Bos, JCRAcilis, JCRAktif, Bekleme, Taarruz>,
+        fsm::transition_table<
+            fsm::default_transition<JCRAktif, Bekleme>,
+            fsm::internal_transition<JCRAktif, evARABaslaJCRDen, ARABaslaJCRDenAction>,
+            fsm::internal_transition<JCRAktif, evARADurJCRDen, ARADurJCRDenAction>,
+            fsm::transition<Bos, fsm::no_event, JCRAcilis>,
+            fsm::transition<JCRAcilis, evJCRAktif, JCRAktif, PrintLogJCRAktifAction>,
+            fsm::transition<Bekleme, evTaarruzVar, Taarruz, fsm::no_action, TaarruzGuard>,
+            fsm::transition<Taarruz, evTaarruzYok, Bekleme>,
+            fsm::transition<Taarruz, evAktifTeknikDurumuDegerlendir, Taarruz>
+        >
     >
->
 {
-    int tickCount = 0;
-    int stopCount = 0;
-    int runCount  = 0;
+    void ARABaslaJCRDen(int iTekHedefEtModu)
+    {
+        m_blAramaDurumu = true;
+        std::cout << "ARABaslaJCRDen::iTekHedefEtModu = "
+                  << iTekHedefEtModu
+                  << ", m_blAramaDurumu = "
+                  << m_blAramaDurumu
+                  << "\n";
+    }
+
+    void ARADurJCRDen(int iAITID)
+    {
+        m_blAramaDurumu = false;
+        std::cout << "ARADurJCRDen::iAITID = "
+                  << iAITID
+                  << ", m_blAramaDurumu = "
+                  << m_blAramaDurumu
+                  << "\n";
+    }
+
+    bool m_blAramaDurumu = false;
+    int  m_iCounter = 0;
 };
 
-inline void TickAction::operator()(DemoMachine& m, const EvTick&) const { ++m.tickCount; }
-inline void StopAction::operator()(DemoMachine& m, const EvStop&) const { ++m.stopCount; }
-inline void RunAction::operator()(DemoMachine& m, const EvRun&) const { ++m.runCount; }
+// --------------------------------------------------
+// State hooks
+// --------------------------------------------------
+
+inline void Bos::on_entry()
+{
+    std::cout << "Bos::on_entry machine counter = "
+              << machine().m_iCounter++
+              << "\n";
+}
+
+inline void Bos::on_exit()
+{
+    std::cout << "Bos::on_exit\n";
+}
+
+inline void JCRAcilis::on_entry()
+{
+    std::cout << "JCRAcilis::on_entry machine counter = "
+              << machine().m_iCounter++
+              << "\n";
+}
+
+inline void JCRAcilis::on_exit()
+{
+    std::cout << "JCRAcilis::on_exit\n";
+}
+
+inline void JCRAktif::on_entry()
+{
+    std::cout << "JCRAktif::on_entry machine counter = "
+              << machine().m_iCounter++
+              << "\n";
+}
+
+inline void JCRAktif::on_exit()
+{
+    std::cout << "JCRAktif::on_exit\n";
+}
+
+inline void Bekleme::on_entry()
+{
+    std::cout << "Bekleme::on_entry machine counter = "
+              << machine().m_iCounter++
+              << "\n";
+}
+
+inline void Bekleme::on_exit()
+{
+    std::cout << "Bekleme::on_exit\n";
+}
+
+inline void Taarruz::on_entry()
+{
+    std::cout << "Taarruz::on_entry machine counter = "
+              << machine().m_iCounter++
+              << "\n";
+}
+
+inline void Taarruz::on_exit()
+{
+    std::cout << "Taarruz::on_exit\n";
+}
+
+// --------------------------------------------------
+// Action implementations
+// --------------------------------------------------
+
+inline void PrintLogJCRAktifAction::operator()(
+    ATUJCRDenetleyici&,
+    const evJCRAktif&) const
+{
+    std::cout << "PrintLogJCRAktifAction\n";
+}
+
+inline void ARABaslaJCRDenAction::operator()(
+    ATUJCRDenetleyici& m,
+    const evARABaslaJCRDen& ev) const
+{
+    m.ARABaslaJCRDen(ev.iTekHedefEtModu);
+}
+
+inline void ARADurJCRDenAction::operator()(
+    ATUJCRDenetleyici& m,
+    const evARADurJCRDen& ev) const
+{
+    m.ARADurJCRDen(ev.iAITID);
+}
+
+inline void AktifTeknikDurumuDegerlendir::operator()(
+    ATUJCRDenetleyici&,
+    const evAktifTeknikDurumuDegerlendir&) const
+{
+    std::cout << "AktifTeknikDurumuDegerlendir\n";
+}
+
+// --------------------------------------------------
+// Guard implementation
+// --------------------------------------------------
+
+inline bool TaarruzGuard::operator()(
+    ATUJCRDenetleyici& m,
+    const evTaarruzVar&) const
+{
+    if (m.m_blAramaDurumu)
+    {
+        std::cout << "TaarruzGuard:: sistem arama durumunda, taarruz yapilmayacak!\n";
+        return false;
+    }
+    else
+    {
+        std::cout << "TaarruzGuard:: sistem arama durumunda degil, taarruz yapilacak!\n";
+        return true;
+    }
+}
+
+// --------------------------------------------------
+// main
+// --------------------------------------------------
 
 int main()
 {
-    DemoMachine sm;
-    sm.initiate();
+    ATUJCRDenetleyici rATUJCRDenetleyici;
 
-    std::cout << "In Running? " << sm.is_in_state<Running>() << "\n";
+    rATUJCRDenetleyici.initiate();
 
-    sm.process_event(EvTick{});
-    sm.process_event(EvTick{});
-    std::cout << "tickCount=" << sm.tickCount << "\n";
+    rATUJCRDenetleyici.process_event(evTaarruzVar{});
+    std::cout << "evTaarruzVar is ignored.\n";
 
-    sm.process_event(EvStop{});
-    std::cout << "In Stopped? " << sm.is_in_state<Stopped>() << "\n";
-
-    sm.process_event(EvRun{});
-    std::cout << "In Running? " << sm.is_in_state<Running>() << "\n";
-
-    return 0;
+    rATUJCRDenetleyici.process_event(evJCRAktif{});
+    rATUJCRDenetleyici.process_event(evARABaslaJCRDen{25});
+    rATUJCRDenetleyici.process_event(evTaarruzVar{});
+    rATUJCRDenetleyici.process_event(evARADurJCRDen{24});
+    rATUJCRDenetleyici.process_event(evTaarruzVar{});
+    rATUJCRDenetleyici.process_event(evAktifTeknikDurumuDegerlendir{});
+    rATUJCRDenetleyici.process_event(evAktifTeknikDurumuDegerlendir{});
 }

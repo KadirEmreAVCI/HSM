@@ -1,14 +1,12 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
 struct S1 : fsm::state<S1, M> { using state::state; };
 struct S2 : fsm::state<S2, M> { using state::state; };
-
 struct Ev {};
 
-// WRONG: return type void (must be bool)
 struct bad_guard
 {
     void operator()(M&, const Ev&) const {}

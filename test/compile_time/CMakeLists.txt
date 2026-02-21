@@ -35,3 +35,7 @@ add_compile_fail_test(parent_default_not_direct_child       parent_default_not_d
 add_compile_fail_test(external_cross_level                  external_cross_level.cpp)
 add_compile_fail_test(external_parent_to_child              external_parent_to_child.cpp)
 add_compile_fail_test(default_not_direct_child              default_not_direct_child.cpp)
+add_compile_fail_test(default_plus_external_fail            default_plus_external_fail.cpp)
+add_compile_fail_test(dst_not_in_variant_default            dst_not_in_variant_default.cpp)
+add_compile_fail_test(dst_not_in_variant_external           dst_not_in_variant_external.cpp)
+add_compile_fail_test(external_different_parents            external_different_parents.cpp)

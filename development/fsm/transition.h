@@ -5,9 +5,10 @@
 
 namespace fsm
 {
-    // -------------------------
+    // --------------------------------------------------
     // Default guard/action
-    // -------------------------
+    // --------------------------------------------------
+
     struct always_true_guard
     {
         template <typename M, typename E>
@@ -26,10 +27,13 @@ namespace fsm
         void operator()(M&) const {}
     };
 
-    // -------------------------
+    // Used to represent an unconditional external transition that can be auto-fired.
+    struct no_event {};
+
+    // --------------------------------------------------
     // External transition:
     //   guard -> src.on_exit -> action(machine,event) -> dst.on_entry
-    // -------------------------
+    // --------------------------------------------------
     template <
         typename SrcState, typename Event, typename DstState,
         typename Action = no_action,
@@ -44,13 +48,13 @@ namespace fsm
         using guard = Guard;
     };
 
-    // -------------------------
+    // --------------------------------------------------
     // Internal transition:
     // - no guard
     // - no exit/entry
     // - no state change
     // - action(machine,event)
-    // -------------------------
+    // --------------------------------------------------
     template <typename SrcState, typename Event, typename Action>
     struct internal_transition
     {
@@ -59,37 +63,37 @@ namespace fsm
         using act = Action;
     };
 
-    // -------------------------
+    // --------------------------------------------------
     // Default transition (HSM "initial substate"):
     // - no event
     // - no guard
     // - applied automatically after entering a (parent) state
     // - HSM semantics: Parent remains active; do NOT exit parent
     // - order (entry of parent already ran):
-    //     action(machine) -> enter child
-    // -------------------------
+    //   action(machine) -> enter child
+    // --------------------------------------------------
     template <typename SrcState, typename DstState, typename Action = no_default_action>
     struct default_transition
     {
         using src = SrcState;
         using dst = DstState;
-        using act = Action; // callable as act(Machine&)
+        using act = Action; // callable as act(machine)
     };
 
-    // -------------------------
+    // --------------------------------------------------
     // Transition table
-    // -------------------------
+    // --------------------------------------------------
     template <typename... Ts>
     struct transition_table {};
 
-    // -------------------------
+    // --------------------------------------------------
     // Traits
-    // -------------------------
+    // --------------------------------------------------
 
     // Default transition trait
     // Provides:
     //   is_default_transition<T>::value
-    //   is_default_transition<T>::src, dst, act (only when value==true)
+    // is_default_transition<T>::src, dst, act (only when value==true)
     template <typename T>
     struct is_default_transition : std::false_type {};
 
@@ -116,6 +120,16 @@ namespace fsm
         using act = A;
     };
 
+    template <typename T>
+    struct is_unconditional_external_transition : std::false_type {};
+
+    // Unconditional external transition is defined as:
+    // transition<Src, no_event, Dst, Act, always_true_guard>
+    template <typename Src, typename Dst, typename Act>
+    struct is_unconditional_external_transition<
+        transition<Src, no_event, Dst, Act, always_true_guard>
+    > : std::true_type {};
+
     // has_event<T>: true if row has nested type T::ev
     template <typename T, typename = void>
     struct has_event : std::false_type {};
@@ -123,5 +137,4 @@ namespace fsm
     template <typename T>
     struct has_event<T, std::void_t<typename T::ev>> : std::true_type {};
 }
-
 #endif // TRANSITION_H

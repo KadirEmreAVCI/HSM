@@ -1,5 +1,5 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
@@ -10,7 +10,7 @@ struct Ev {};
 
 using BadTable = fsm::transition_table<
     fsm::transition<S1, Ev, S2>,
-    fsm::transition<S1, Ev, S1> // duplicate (S1,Ev)
+    fsm::transition<S1, Ev, S1>
 >;
 
 struct M : fsm::state_machine<M, S1, std::variant<S1, S2>, BadTable> {};
