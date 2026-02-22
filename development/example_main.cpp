@@ -36,43 +36,43 @@ struct ATUJCRDenetleyici;
 struct Bos : fsm::state<Bos, ATUJCRDenetleyici>
 {
     using fsm::state<Bos, ATUJCRDenetleyici>::state;
-    void on_entry();
-    void on_exit();
+    virtual void on_entry() override;
+    virtual void on_exit() override;
 };
 
 struct JCRAcilis : fsm::state<JCRAcilis, ATUJCRDenetleyici>
 {
     using fsm::state<JCRAcilis, ATUJCRDenetleyici>::state;
-    void on_entry();
-    void on_exit();
+    virtual void on_entry() override;
+    virtual void on_exit() override;
 };
 
 struct JCRAktif : fsm::state<JCRAktif, ATUJCRDenetleyici>
 {
     using fsm::state<JCRAktif, ATUJCRDenetleyici>::state;
-    void on_entry();
-    void on_exit();
+    virtual void on_entry() override;
+    virtual void on_exit() override;
 };
 
 struct Bekleme : fsm::state<Bekleme, ATUJCRDenetleyici>
 {
     using fsm::state<Bekleme, ATUJCRDenetleyici>::state;
-    void on_entry();
-    void on_exit();
+    virtual void on_entry() override;
+    virtual void on_exit() override;
 };
 
 struct Taarruz : fsm::state<Taarruz, ATUJCRDenetleyici>
 {
     using fsm::state<Taarruz, ATUJCRDenetleyici>::state;
-    void on_entry();
-    void on_exit();
+    virtual void on_entry() override;
+    virtual void on_exit() override;
 };
 
 struct CIT : fsm::state<CIT, ATUJCRDenetleyici>
 {
     using fsm::state<CIT, ATUJCRDenetleyici>::state;
-    void on_entry();
-    void on_exit();
+    virtual void on_entry() override;
+    virtual void on_exit() override;
 };
 
 // --------------------------------------------------

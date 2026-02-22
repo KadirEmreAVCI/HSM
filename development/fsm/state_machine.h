@@ -12,40 +12,6 @@
 namespace fsm
 {
     // =========================================================================
-    // Optional hook detection: on_entry/on_exit
-    // =========================================================================
-
-    template <typename S, typename = void>
-    struct has_on_entry : std::false_type {};
-
-    template <typename S>
-    struct has_on_entry<S, std::void_t<decltype(std::declval<S&>().on_entry())>> : std::true_type {};
-
-    template <typename S, typename = void>
-    struct has_on_exit : std::false_type {};
-
-    template <typename S>
-    struct has_on_exit<S, std::void_t<decltype(std::declval<S&>().on_exit())>> : std::true_type {};
-
-    template <typename S>
-    inline void maybe_call_on_entry(S& s)
-    {
-        if constexpr (has_on_entry<S>::value)
-        {
-            s.on_entry();
-        }
-    }
-
-    template <typename S>
-    inline void maybe_call_on_exit(S& s)
-    {
-        if constexpr (has_on_exit<S>::value)
-        {
-            s.on_exit();
-        }
-    }
-
-    // =========================================================================
     // Compile-time: unique (src,event) among event-driven transitions
     // (external + internal). Default transitions excluded (no event).
     // =========================================================================
@@ -628,7 +594,11 @@ namespace fsm
     private:
         void enter_current_state_()
         {
-            std::visit([](auto& st) { maybe_call_on_entry(st); }, current_);
+            std::visit([](auto& st) {
+                using T = std::decay_t<decltype(st)>;
+                if constexpr (!std::is_same_v<T, std::monostate>)
+                    st.on_entry();
+            }, current_);
         }
 
         // ----------------------------------------------------------
@@ -722,7 +692,7 @@ namespace fsm
             if constexpr (!std::is_same_v<S, void>)
             {   
                 S tmp(derived());
-                maybe_call_on_entry(tmp);
+                tmp.on_entry();
             }
         }
 
@@ -732,7 +702,7 @@ namespace fsm
             if constexpr (!std::is_same_v<S, void>)
             {
                 S tmp(derived());
-                maybe_call_on_exit(tmp);
+                tmp.on_exit();
             }
         }
 
@@ -740,7 +710,7 @@ namespace fsm
         void exit_up_to_ancestor_(LeafObj& leafObj)
         {
             // exit stored leaf object first
-            maybe_call_on_exit(leafObj);
+            leafObj.on_exit();
 
             using P = typename parent_of<From>::type;
             if constexpr (!std::is_same<P, void>::value && !std::is_same<P, Ancestor>::value)
@@ -926,7 +896,7 @@ namespace fsm
             if constexpr (is_unconditional_external_transition<T0>::value && std::is_same<typename T0::src, CurState>::value)
             {
                 // External semantics: exit -> action(M&, no_event const&) -> enter
-                maybe_call_on_exit(curObj);
+                curObj.on_exit();
 
                 static_assert(std::is_invocable_v<typename T0::act, derived_type&, const no_event&>,
                     "Unconditional external transition action must be callable as: act(Machine&, no_event const&).");
