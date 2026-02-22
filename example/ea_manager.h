@@ -33,7 +33,7 @@ struct evRequestBIT { BITType eBITType = BITType::PBIT; };
 // Forward Declaration
 // --------------------------------------------------
 
-struct EAManager;
+class EAManager;
 
 // --------------------------------------------------
 // States
@@ -154,8 +154,8 @@ struct GuardEvRequestBIT
 // Machine
 // --------------------------------------------------
 
-struct EAManager :
-    hsm::state_machine<
+class EAManager :
+    public hsm::state_machine<
         EAManager,
         stIdle,
         std::variant<stIdle, stOperational, stStartUp, stActive, stWaiting, stAttacking, stBIT>,
@@ -174,12 +174,37 @@ struct EAManager :
         >
     >
 {   
+    friend struct stIdle;
+    friend struct stOperational;
+    friend struct stStartUp;
+    friend struct stActive;
+    friend struct stWaiting;
+    friend struct stAttacking;
+    friend struct stBIT;
+
+    friend struct ActionEvTick;
+    friend struct ActionEvActivate;
+    friend struct ActionEvStartScanning;
+    friend struct ActionEvStopScanning;
+    friend struct ActionEvRequestBIT;
+
+    friend struct GuardEvStartAttacking;
+    friend struct GuardEvRequestBIT;
+
+public:
+    
     EAManager(bool blPrintTrace = false) : m_blPrintTrace(blPrintTrace) {}
 
     // -------------------------
     // Trace
     // -------------------------
 
+    const std::vector<std::string>& GetTrace() const
+    {
+        return trace;
+    }
+
+private:
     void AddTrace(const std::string& s) const
     {
         if (m_blPrintTrace)
@@ -187,11 +212,6 @@ struct EAManager :
             std::cout << s;
         }
         trace.push_back(s);
-    }
-
-    const std::vector<std::string>& GetTrace() const
-    {
-        return trace;
     }
 
     void ResetTrace() const
