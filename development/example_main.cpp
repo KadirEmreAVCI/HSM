@@ -5,72 +5,84 @@
 #include <fsm/transition.h>
 #include <fsm/state_machine.h>
 
+enum class BITType
+{
+    PBIT = 0,
+    CBIT = 1,
+    IBIT = 2
+};
+
+// --------------------------------------------------
 // Events
 // --------------------------------------------------
 
-struct evJCRAktif{};
-struct evTaarruzVar{};
-struct evTaarruzYok{};
-struct evAktifTeknikDurumuDegerlendir{};
-struct evCITBasla{};
-struct evCITBitir{};
-
-struct evARABaslaJCRDen{
-    int iTekHedefEtModu = 0;
+struct evTick{
+    int iTickValue = 0;
 };
-
-struct evARADurJCRDen{
-    int iAITID = 0;
+struct evActivate{};
+struct evStartAttacking{};
+struct evStopAttacking{};
+struct evStartScanning{};
+struct evStopScanning{};
+struct evRequestBIT{
+    BITType eBITType = BITType::PBIT;
 };
 
 // --------------------------------------------------
 // Machine forward declaration
 // --------------------------------------------------
 
-struct ATUJCRDenetleyici;
+struct EAManager;
 
 // --------------------------------------------------
 // States
 // --------------------------------------------------
 
-struct Bos : fsm::state<Bos, ATUJCRDenetleyici>
+struct stIdle : fsm::state<stIdle, EAManager>
 {
-    using fsm::state<Bos, ATUJCRDenetleyici>::state;
+    using fsm::state<stIdle, EAManager>::state;
     virtual void on_entry() override;
     virtual void on_exit() override;
 };
 
-struct JCRAcilis : fsm::state<JCRAcilis, ATUJCRDenetleyici>
+struct stOperational : fsm::state<stOperational, EAManager>
 {
-    using fsm::state<JCRAcilis, ATUJCRDenetleyici>::state;
+    using fsm::state<stOperational, EAManager>::state;
     virtual void on_entry() override;
     virtual void on_exit() override;
 };
 
-struct JCRAktif : fsm::state<JCRAktif, ATUJCRDenetleyici>
+struct stStartUp : fsm::state<stStartUp, EAManager>
 {
-    using fsm::state<JCRAktif, ATUJCRDenetleyici>::state;
+    using fsm::state<stStartUp, EAManager>::state;
     virtual void on_entry() override;
     virtual void on_exit() override;
 };
 
-struct Bekleme : fsm::state<Bekleme, ATUJCRDenetleyici>
+struct stActive : fsm::state<stActive, EAManager>
 {
-    using fsm::state<Bekleme, ATUJCRDenetleyici>::state;
+    using fsm::state<stActive, EAManager>::state;
     virtual void on_entry() override;
     virtual void on_exit() override;
 };
 
-struct Taarruz : fsm::state<Taarruz, ATUJCRDenetleyici>
+struct stWaiting : fsm::state<stWaiting, EAManager>
 {
-    using fsm::state<Taarruz, ATUJCRDenetleyici>::state;
+    using fsm::state<stWaiting, EAManager>::state;
     virtual void on_entry() override;
     virtual void on_exit() override;
 };
 
-struct CIT : fsm::state<CIT, ATUJCRDenetleyici>
+struct stAttacking : fsm::state<stAttacking, EAManager>
 {
-    using fsm::state<CIT, ATUJCRDenetleyici>::state;
+    using fsm::state<stAttacking, EAManager>::state;
+    virtual void on_entry() override;
+    virtual void on_exit() override;
+};
+
+struct stBIT : fsm::state<stBIT, EAManager>
+{
+    using fsm::state<stBIT, EAManager>::state;
     virtual void on_entry() override;
     virtual void on_exit() override;
 };
@@ -80,217 +92,252 @@ struct CIT : fsm::state<CIT, ATUJCRDenetleyici>
 // --------------------------------------------------
 
 template <>
-struct fsm::parent_of<Bekleme> { using type = JCRAktif; };
+struct fsm::parent_of<stStartUp> { using type = stOperational; };
 
 template <>
-struct fsm::parent_of<Taarruz> { using type = JCRAktif; };
+struct fsm::parent_of<stActive> { using type = stOperational; };
+
+template <>
+struct fsm::parent_of<stWaiting> { using type = stActive; };
+
+template <>
+struct fsm::parent_of<stAttacking> { using type = stActive; };
+
+template <>
+struct fsm::parent_of<stBIT> { using type = stOperational; };
 
 // --------------------------------------------------
 // Actions
 // --------------------------------------------------
 
-struct PrintLogJCRAktifAction
+struct ActionEvTick
 {
-    void operator()(ATUJCRDenetleyici&, const evJCRAktif&) const;
+    void operator()(EAManager&, const evTick&) const;
 };
 
-struct ARABaslaJCRDenAction
+struct ActionEvActivate
 {
-    void operator()(ATUJCRDenetleyici&, const evARABaslaJCRDen&) const;
+    void operator()(EAManager&, const evActivate&) const;
 };
 
-struct ARADurJCRDenAction
+struct ActionEvStartScanning
 {
-    void operator()(ATUJCRDenetleyici&, const evARADurJCRDen&) const;
+    void operator()(EAManager&, const evStartScanning&) const;
 };
 
-struct AktifTeknikDurumuDegerlendir
+struct ActionEvStopScanning
 {
-    void operator()(ATUJCRDenetleyici&, const evAktifTeknikDurumuDegerlendir&) const;
+    void operator()(EAManager&, const evStopScanning&) const;
+};
+
+struct ActionEvRequestBIT
+{
+    void operator()(EAManager&, const evRequestBIT&) const;
 };
 
 // --------------------------------------------------
 // Guard
 // --------------------------------------------------
 
-struct TaarruzGuard
+struct GuardEvStartAttacking
 {
-    bool operator()(ATUJCRDenetleyici&, const evTaarruzVar&) const;
+    bool operator()(const EAManager&, const evStartAttacking&) const;
+};
+
+struct GuardEvRequestBIT
+{
+    bool operator()(const EAManager&, const evRequestBIT&) const;
 };
 
 // --------------------------------------------------
 // Machine
 // --------------------------------------------------
 
-struct ATUJCRDenetleyici :
+struct EAManager :
     fsm::state_machine<
-        ATUJCRDenetleyici,
-        Bos,
-        std::variant<Bos, JCRAcilis, JCRAktif, Bekleme, Taarruz, CIT>,
+        EAManager,
+        stIdle,
+        std::variant<stIdle, stOperational, stStartUp, stActive, stWaiting, stAttacking, stBIT>,
         fsm::transition_table<
-            fsm::default_transition<JCRAktif, Bekleme>,
-            fsm::internal_transition<JCRAktif, evARABaslaJCRDen, ARABaslaJCRDenAction>,
-            fsm::internal_transition<JCRAktif, evARADurJCRDen, ARADurJCRDenAction>,
-            fsm::transition<Bos, fsm::no_event, JCRAcilis>,
-            fsm::transition<JCRAcilis, evJCRAktif, JCRAktif, PrintLogJCRAktifAction>,
-            fsm::transition<Bekleme, evTaarruzVar, Taarruz, fsm::no_action, TaarruzGuard>,
-            fsm::transition<Taarruz, evTaarruzYok, Bekleme>,
-            fsm::transition<Taarruz, evAktifTeknikDurumuDegerlendir, Taarruz>,
-            fsm::transition<JCRAktif, evCITBasla, CIT>,
-            fsm::transition<CIT, evCITBitir, JCRAktif>
+            fsm::default_transition<stOperational, stStartUp>,
+            fsm::default_transition<stActive, stWaiting>,
+            fsm::transition<stIdle, fsm::no_event, stOperational, fsm::no_action, fsm::always_true_guard>,
+            fsm::transition<stStartUp, evActivate, stActive, ActionEvActivate, fsm::always_true_guard>,
+            fsm::transition<stWaiting, evStartAttacking, stAttacking, fsm::no_action, GuardEvStartAttacking>,
+            fsm::transition<stAttacking, evStopAttacking, stWaiting, fsm::no_action, fsm::always_true_guard>,
+            fsm::transition<stActive, evRequestBIT, stBIT, ActionEvRequestBIT, GuardEvRequestBIT>,
+            fsm::transition<stBIT, fsm::no_event, stActive, fsm::no_action, fsm::always_true_guard>,
+            fsm::internal_transition<stOperational, evTick, ActionEvTick>,
+            fsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning>,
+            fsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning>
         >
     >
 {
-    void ARABaslaJCRDen(int iTekHedefEtModu)
+    void AddTick(int iValue)
     {
-        m_blAramaDurumu = true;
-        std::cout << "ARABaslaJCRDen::iTekHedefEtModu = "
-                  << iTekHedefEtModu
-                  << ", m_blAramaDurumu = "
-                  << m_blAramaDurumu
-                  << "\n";
+        m_iTickCounter += iValue;
+        std::cout << "EAManager::AddTick -> m_iTickCounter: " << m_iTickCounter << "\n";
     }
-
-    void ARADurJCRDen(int iAITID)
+    void ActivateSystem()  
     {
-        m_blAramaDurumu = false;
-        std::cout << "ARADurJCRDen::iAITID = "
-                  << iAITID
-                  << ", m_blAramaDurumu = "
-                  << m_blAramaDurumu
-                  << "\n";
+        std::cout << "EAManager::ActivateSystem\n";
     }
-
-    bool m_blAramaDurumu = false;
-    int  m_iCounter = 0;
+    void StartScanning()
+    {
+        std::cout << "EAManager::StartScanning\n";
+        m_blScanning = true;
+    } 
+    void StopScanning()
+    {
+        std::cout << "EAManager::StopScanning\n";
+        m_blScanning = false;
+    }
+    bool IsScanning() const
+    {
+        std::cout << "EAManager::IsScanning -> " << m_blScanning << "\n";
+        return m_blScanning;
+    }
+    void StartAttacking()
+    {
+        std::cout << "EAManager::StartAttacking\n";
+        m_blAttacking = true;
+    }
+    void StopAttacking()
+    {
+        std::cout << "EAManager::StopAttacking\n";
+        m_blAttacking = false;
+    }
+    bool IsAttacking() const
+    {
+        std::cout << "EAManager::IsAttacking -> " << m_blAttacking << "\n";
+        return m_blAttacking;
+    } 
+    void RequestBIT(BITType eBITType)
+    {
+        std::cout << "EAManager::RequestBIT -> eBITType: " << static_cast<int>(eBITType) << "\n";
+    }
+    bool m_blScanning = false;
+    bool m_blAttacking = false;
+    int  m_iTickCounter = 0;
 };
 
 // --------------------------------------------------
-// State hooks
+// State's on_entry/on_exit implementations
 // --------------------------------------------------
 
-inline void Bos::on_entry()
+inline void stIdle::on_entry()
 {
-    std::cout << "Bos::on_entry machine counter = "
-              << machine().m_iCounter++
-              << "\n";
+    std::cout << "stIdle::on_entry\n";
 }
 
-inline void Bos::on_exit()
+inline void stIdle::on_exit()
 {
-    std::cout << "Bos::on_exit\n";
+    std::cout << "stIdle::on_exit\n";
 }
 
-inline void JCRAcilis::on_entry()
+inline void stOperational::on_entry()
 {
-    std::cout << "JCRAcilis::on_entry machine counter = "
-              << machine().m_iCounter++
-              << "\n";
+    std::cout << "stOperational::on_entry\n";
 }
 
-inline void JCRAcilis::on_exit()
+inline void stOperational::on_exit()
 {
-    std::cout << "JCRAcilis::on_exit\n";
+    std::cout << "stOperational::on_exit\n";
 }
 
-inline void JCRAktif::on_entry()
+inline void stStartUp::on_entry()
 {
-    std::cout << "JCRAktif::on_entry machine counter = "
-              << machine().m_iCounter++
-              << "\n";
+    std::cout << "stStartUp::on_entry\n";
 }
 
-inline void JCRAktif::on_exit()
+inline void stStartUp::on_exit()
 {
-    std::cout << "JCRAktif::on_exit\n";
+    std::cout << "stStartUp::on_exit\n";
 }
 
-inline void Bekleme::on_entry()
+inline void stActive::on_entry()
 {
-    std::cout << "Bekleme::on_entry machine counter = "
-              << machine().m_iCounter++
-              << "\n";
+    std::cout << "stActive::on_entry\n";
 }
 
-inline void Bekleme::on_exit()
+inline void stActive::on_exit()
 {
-    std::cout << "Bekleme::on_exit\n";
+    std::cout << "stActive::on_exit\n";
 }
 
-inline void Taarruz::on_entry()
+inline void stWaiting::on_entry()
 {
-    std::cout << "Taarruz::on_entry machine counter = "
-              << machine().m_iCounter++
-              << "\n";
+    std::cout << "stWaiting::on_entry\n";
 }
 
-inline void Taarruz::on_exit()
+inline void stWaiting::on_exit()
 {
-    std::cout << "Taarruz::on_exit\n";
+    std::cout << "stWaiting::on_exit\n";
 }
 
-inline void CIT::on_entry()
+inline void stAttacking::on_entry()
 {
-    std::cout << "CIT::on_entry machine counter = "
-              << machine().m_iCounter++
-              << "\n";
+    std::cout << "stAttacking::on_entry\n";
+    machine().StartAttacking(); // set attacking flag when entering stAttacking
 }
 
-inline void CIT::on_exit()
+inline void stAttacking::on_exit()
 {
-    std::cout << "CIT::on_exit\n";
+    std::cout << "stAttacking::on_exit\n";
+    machine().StopAttacking(); // ensure attacking flag is reset when exiting stAttacking
+}
+
+inline void stBIT::on_entry()
+{
+    std::cout << "stBIT::on_entry\n";
+}
+
+inline void stBIT::on_exit()
+{
+    std::cout << "stBIT::on_exit\n";
 }
 
 // --------------------------------------------------
 // Action implementations
 // --------------------------------------------------
 
-inline void PrintLogJCRAktifAction::operator()(
-    ATUJCRDenetleyici&,
-    const evJCRAktif&) const
+inline void ActionEvTick::operator()(EAManager& m, const evTick& ev) const
 {
-    std::cout << "PrintLogJCRAktifAction\n";
+    m.AddTick(ev.iTickValue);
 }
 
-inline void ARABaslaJCRDenAction::operator()(
-    ATUJCRDenetleyici& m,
-    const evARABaslaJCRDen& ev) const
+inline void ActionEvActivate::operator()(EAManager& m, const evActivate&) const
 {
-    m.ARABaslaJCRDen(ev.iTekHedefEtModu);
+    m.ActivateSystem();
 }
 
-inline void ARADurJCRDenAction::operator()(
-    ATUJCRDenetleyici& m,
-    const evARADurJCRDen& ev) const
+inline void ActionEvStartScanning::operator()(EAManager& m, const evStartScanning&) const
 {
-    m.ARADurJCRDen(ev.iAITID);
+    m.StartScanning();
 }
 
-inline void AktifTeknikDurumuDegerlendir::operator()(
-    ATUJCRDenetleyici&,
-    const evAktifTeknikDurumuDegerlendir&) const
+inline void ActionEvStopScanning::operator()(EAManager& m, const evStopScanning&) const
 {
-    std::cout << "AktifTeknikDurumuDegerlendir\n";
+    m.StopScanning();
+}
+
+inline void ActionEvRequestBIT::operator()(EAManager& m, const evRequestBIT& ev) const
+{
+    m.RequestBIT(ev.eBITType);
 }
 
 // --------------------------------------------------
 // Guard implementation
 // --------------------------------------------------
 
-inline bool TaarruzGuard::operator()(
-    ATUJCRDenetleyici& m,
-    const evTaarruzVar&) const
+inline bool GuardEvStartAttacking::operator()(const EAManager& m, const evStartAttacking&) const
 {
-    if (m.m_blAramaDurumu)
-    {
-        std::cout << "TaarruzGuard:: sistem arama durumunda, taarruz yapilmayacak!\n";
-        return false;
-    }
-    else
-    {
-        std::cout << "TaarruzGuard:: sistem arama durumunda degil, taarruz yapilacak!\n";
-        return true;
-    }
+    return !m.IsScanning();
+}
+
+inline bool GuardEvRequestBIT::operator()(const EAManager& m, const evRequestBIT& ev) const
+{
+    return !m.IsAttacking() || (ev.eBITType == BITType::IBIT);
 }
 
 // --------------------------------------------------
@@ -299,20 +346,16 @@ inline bool TaarruzGuard::operator()(
 
 int main()
 {
-    ATUJCRDenetleyici rATUJCRDenetleyici;
-
-    rATUJCRDenetleyici.initiate();
-
-    rATUJCRDenetleyici.process_event(evTaarruzVar{});
-    std::cout << "evTaarruzVar is ignored.\n";
-
-    rATUJCRDenetleyici.process_event(evJCRAktif{});
-    rATUJCRDenetleyici.process_event(evARABaslaJCRDen{25});
-    rATUJCRDenetleyici.process_event(evTaarruzVar{});
-    rATUJCRDenetleyici.process_event(evARADurJCRDen{24});
-    rATUJCRDenetleyici.process_event(evTaarruzVar{});
-    rATUJCRDenetleyici.process_event(evAktifTeknikDurumuDegerlendir{});
-    rATUJCRDenetleyici.process_event(evAktifTeknikDurumuDegerlendir{});
-    rATUJCRDenetleyici.process_event(evCITBasla{});
-    rATUJCRDenetleyici.process_event(evCITBitir{});
+    EAManager rEAManager;
+    rEAManager.initiate();
+    rEAManager.process_event(evTick{5});         
+    rEAManager.process_event(evStartScanning{}); // should be ignored since we're not active yet
+    rEAManager.process_event(evActivate{});
+    rEAManager.process_event(evTick{5});
+    rEAManager.process_event(evStartScanning{}); 
+    rEAManager.process_event(evStartAttacking{}); // should be blocked by guard since scanning is active
+    rEAManager.process_event(evStopScanning{});
+    rEAManager.process_event(evStartAttacking{}); // should succeed since scanning is now stopped
+    rEAManager.process_event(evRequestBIT{BITType::PBIT}); // should not be allowed since attacking is active
+    rEAManager.process_event(evRequestBIT{BITType::IBIT}); // should be allowed even if not attacking since IBIT is requested
 }
