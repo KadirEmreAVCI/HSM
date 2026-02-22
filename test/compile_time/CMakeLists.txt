@@ -1,6 +1,6 @@
 function(add_compile_fail_test test_name source_file)
     add_library(${test_name} OBJECT ${source_file})
-    target_link_libraries(${test_name} PRIVATE fsm)
+    target_link_libraries(${test_name} PRIVATE hsm)
 
     # do not build with "all"
     set_target_properties(${test_name} PROPERTIES EXCLUDE_FROM_ALL TRUE)

@@ -6,8 +6,8 @@
 #include <variant>
 #include <cstddef>
 
-#include <fsm/state.h>
-#include <fsm/transition.h>
+#include "state.h"
+#include "transition.h"
 
 namespace fsm
 {
