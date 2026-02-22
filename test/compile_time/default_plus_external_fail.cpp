@@ -7,9 +7,11 @@ struct A : hsm::state<A, M> { using state::state; };
 struct B : hsm::state<B, M> { using state::state; };
 struct C : hsm::state<C, M> { using state::state; };
 
+struct Ev {};
+
 using BadTable = hsm::transition_table<
     hsm::default_transition<A, B>,
-    hsm::default_transition<A, C>
+    hsm::transition<A, Ev, C>
 >;
 
 struct M : hsm::state_machine<M, A, std::variant<A, B, C>, BadTable> {};

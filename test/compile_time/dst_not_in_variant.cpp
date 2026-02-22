@@ -1,8 +1,5 @@
 #include <variant>
-
-#include "fsm/state.h"
-#include "fsm/transition.h"
-#include "fsm/state_machine.h"
+#include "state_machine.h"
 
 namespace {
 
@@ -13,19 +10,19 @@ struct Ev {};
 struct M;
 
 // States in the variant
-struct S1 : fsm::state<S1, M> { using fsm::state<S1, M>::state; };
-struct S2 : fsm::state<S2, M> { using fsm::state<S2, M>::state; };
+struct S1 : hsm::state<S1, M> { using hsm::state<S1, M>::state; };
+struct S2 : hsm::state<S2, M> { using hsm::state<S2, M>::state; };
 
 // Destination state NOT in the variant (this is the bug we want to detect)
-struct S3 : fsm::state<S3, M> { using fsm::state<S3, M>::state; };
+struct S3 : hsm::state<S3, M> { using hsm::state<S3, M>::state; };
 
 // Machine
-struct M : fsm::state_machine<
+struct M : hsm::state_machine<
     M,
     S1,
     std::variant<S1, S2>, // NOTE: S3 is intentionally missing
-    fsm::transition_table<
-        fsm::transition<S1, Ev, S3> // should fail: dst (S3) not in variant
+    hsm::transition_table<
+        hsm::transition<S1, Ev, S3> // should fail: dst (S3) not in variant
     >
 >
 {};

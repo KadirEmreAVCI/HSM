@@ -1,15 +1,13 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
-struct A : fsm::state<A, M> { using state::state; };
-struct B : fsm::state<B, M> { using state::state; };
-struct C : fsm::state<C, M> { using state::state; }; // InitialState, but NOT in variant
+struct A : hsm::state<A, M> { using state::state; };
+struct B : hsm::state<B, M> { using state::state; };
 
-using Table = fsm::transition_table<>;
+using Table = hsm::transition_table<>;
 
-// Variant excludes C -> must fail at static_assert (InitialState must be in list)
-struct M : fsm::state_machine<M, C, std::variant<A, B>, Table> {};
+struct M : hsm::state_machine<M, A, std::variant<B>, Table> {};
 
 int main() { return 0; }
