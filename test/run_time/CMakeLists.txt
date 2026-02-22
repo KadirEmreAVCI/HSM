@@ -11,3 +11,8 @@ target_link_libraries(hsm_run_time_tests
     gtest_main
     gmock
 )
+
+target_include_directories(hsm_run_time_tests
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/example
+)

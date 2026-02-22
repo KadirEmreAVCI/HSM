@@ -1,129 +1,265 @@
-// #include <gtest/gtest.h>
-// #include <variant>
+#include <gtest/gtest.h>
 
-// #include <fsm/state.h>
-// #include <fsm/transition.h>
-// #include <fsm/state_machine.h>
+#include <algorithm>
+#include <sstream>
+#include <string>
+#include <vector>
 
-// // Events
-// struct EvTick {};
-// struct EvStop {};
-// struct EvRun {};
+#include "ea_manager.h"
 
-// // Forward decl
-// struct TestMachine;
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
 
-// // States
-// struct Top : fsm::state<Top, TestMachine> { using fsm::state<Top, TestMachine>::state; };
-// struct Operational : fsm::state<Operational, TestMachine> { using fsm::state<Operational, TestMachine>::state; };
-// struct Running : fsm::state<Running, TestMachine> { using fsm::state<Running, TestMachine>::state; };
-// struct Stopped : fsm::state<Stopped, TestMachine> { using fsm::state<Stopped, TestMachine>::state; };
+static std::string Join(const std::vector<std::string>& v)
+{
+    std::ostringstream os;
+    for (const auto& s : v) os << s;
+    return os.str();
+}
 
-// // parent_of
-// template <> struct fsm::parent_of<Operational> { using type = Top; };
-// template <> struct fsm::parent_of<Running>     { using type = Operational; };
-// template <> struct fsm::parent_of<Stopped>     { using type = Operational; };
+static void ExpectTraceEq(const std::vector<std::string>& actual,
+                          const std::vector<std::string>& expected)
+{
+    if (actual != expected)
+    {
+        ADD_FAILURE() << "Trace mismatch.\n\nExpected:\n"
+                      << Join(expected)
+                      << "\nActual:\n"
+                      << Join(actual);
+    }
+    EXPECT_EQ(actual, expected);
+}
 
-// // Actions
-// struct TickAction { void operator()(TestMachine& m, const EvTick&) const; };
-// struct StopAction { void operator()(TestMachine& m, const EvStop&) const; };
-// struct RunAction  { void operator()(TestMachine& m, const EvRun&)  const; };
+static int CountLine(const std::vector<std::string>& tr,
+                     const std::string& line)
+{
+    return static_cast<int>(std::count(tr.begin(), tr.end(), line));
+}
 
-// struct TestMachine : fsm::state_machine<
-//     TestMachine,
-//     Top,
-//     std::variant<Top, Operational, Running, Stopped>,
-//     fsm::transition_table<
-//         // default chain to leaf
-//         fsm::default_transition<Top, Operational>,
-//         fsm::default_transition<Operational, Running>,
+static bool ContainsLine(const std::vector<std::string>& tr,
+                         const std::string& line)
+{
+    return std::find(tr.begin(), tr.end(), line) != tr.end();
+}
 
-//         // NO bubble-up => all event handlers on leaves
-//         fsm::internal_transition<Running, EvTick, TickAction>,
-//         fsm::transition<Running, EvStop, Stopped, StopAction>,
-//         fsm::transition<Stopped, EvRun, Running, RunAction>
-//     >
-// >
-// {
-//     int tickCount = 0;
-//     int stopCount = 0;
-//     int runCount  = 0;
-// };
+// ------------------------------------------------------------
+// Tests
+// ------------------------------------------------------------
 
-// inline void TickAction::operator()(TestMachine& m, const EvTick&) const { ++m.tickCount; }
-// inline void StopAction::operator()(TestMachine& m, const EvStop&) const { ++m.stopCount; }
-// inline void RunAction::operator()(TestMachine& m, const EvRun&)  const { ++m.runCount; }
+TEST(EAManagerRuntime, InitiateSequence_StrictTrace)
+{
+    EAManager m;
+    m.initiate();
 
-// // ------------------------------------------------------------
-// // Tests
-// // ------------------------------------------------------------
+    ASSERT_TRUE(m.is_in_state<stStartUp>());
 
-// TEST(Hsm_NoBubbleUp, Initiate_ReachesLeafViaDefaultChain)
-// {
-//     TestMachine sm;
-//     sm.initiate();
+    const std::vector<std::string> expected =
+    {
+        "stIdle::on_entry\n",
+        "stIdle::on_exit\n",
+        "stOperational::on_entry\n",
+        "stStartUp::on_entry\n"
+    };
 
-//     // InitialState is Top, but default chain should land in Running leaf
-//     EXPECT_TRUE(sm.is_in_state<Running>());
-//     EXPECT_FALSE(sm.is_in_state<Stopped>());
-// }
+    ExpectTraceEq(m.GetTrace(), expected);
+}
 
-// TEST(Hsm_NoBubbleUp, InternalTransition_OnLeafIsHandled)
-// {
-//     TestMachine sm;
-//     sm.initiate();
-//     ASSERT_TRUE(sm.is_in_state<Running>());
+TEST(EAManagerRuntime, Activate_TransitionsToWaiting_StrictTrace)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
 
-//     sm.process_event(EvTick{});
-//     sm.process_event(EvTick{});
-//     sm.process_event(EvTick{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-//     EXPECT_EQ(sm.tickCount, 3);
-//     EXPECT_TRUE(sm.is_in_state<Running>()); // internal => no state change
-// }
+    const std::vector<std::string> expected =
+    {
+        "stIdle::on_entry\n",
+        "stIdle::on_exit\n",
+        "stOperational::on_entry\n",
+        "stStartUp::on_entry\n",
 
-// TEST(Hsm_NoBubbleUp, ExternalTransition_RunningToStopped_SameLevel)
-// {
-//     TestMachine sm;
-//     sm.initiate();
-//     ASSERT_TRUE(sm.is_in_state<Running>());
+        "stStartUp::on_exit\n",
+        "EAManager::ActivateSystem\n",
+        "stActive::on_entry\n",
+        "stWaiting::on_entry\n"
+    };
 
-//     sm.process_event(EvStop{});
+    ExpectTraceEq(m.GetTrace(), expected);
+}
 
-//     EXPECT_TRUE(sm.is_in_state<Stopped>());
-//     EXPECT_EQ(sm.stopCount, 1);
-// }
+TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evTick{5});
 
-// TEST(Hsm_NoBubbleUp, ExternalTransition_StoppedToRunning_SameLevel)
-// {
-//     TestMachine sm;
-//     sm.initiate();
-//     sm.process_event(EvStop{});
-//     ASSERT_TRUE(sm.is_in_state<Stopped>());
+    ASSERT_TRUE(m.is_in_state<stStartUp>());
 
-//     sm.process_event(EvRun{});
+    const auto& tr = m.GetTrace();
 
-//     EXPECT_TRUE(sm.is_in_state<Running>());
-//     EXPECT_EQ(sm.runCount, 1);
-// }
+    EXPECT_TRUE(ContainsLine(tr,
+        "EAManager::AddTick -> m_iTickCounter: 5\n"));
 
-// // Optional “current behavior” test: event defined only on parent will be ignored
-// // (You can keep or remove this; it documents pre-bubble-up behavior.)
-// struct EvParentOnly {};
+    EXPECT_FALSE(ContainsLine(tr, "stStartUp::on_exit\n"));
+}
 
-// struct ParentOnlyAction { void operator()(TestMachine& m, const EvParentOnly&) const { ++m.tickCount; } };
+TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-// // NOTE: We DO NOT add any transition for EvParentOnly to the table,
-// // because adding it on Operational would only work after bubble-up.
-// // So here we just verify the event is ignored.
-// TEST(Hsm_NoBubbleUp, ParentLevelEventIsIgnoredForNow)
-// {
-//     TestMachine sm;
-//     sm.initiate();
-//     ASSERT_TRUE(sm.is_in_state<Running>());
+    m.process_event(evStartScanning{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-//     const int before = sm.tickCount;
-//     sm.process_event(EvParentOnly{});
-//     EXPECT_EQ(sm.tickCount, before);
-//     EXPECT_TRUE(sm.is_in_state<Running>());
-// }
+    m.process_event(evStartAttacking{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+    const auto& tr = m.GetTrace();
+
+    EXPECT_EQ(CountLine(tr,
+        "EAManager::IsScanning -> 1\n"), 1);
+
+    EXPECT_FALSE(ContainsLine(tr, "stWaiting::on_exit\n"));
+    EXPECT_FALSE(ContainsLine(tr, "stAttacking::on_entry\n"));
+    EXPECT_FALSE(ContainsLine(tr, "EAManager::StartAttacking\n"));
+}
+
+TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+    m.process_event(evStartScanning{});
+    m.process_event(evStopScanning{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+    m.process_event(evStartAttacking{});
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+    const auto& tr = m.GetTrace();
+
+    EXPECT_EQ(CountLine(tr,
+        "EAManager::IsScanning -> 0\n"), 1);
+
+    EXPECT_TRUE(ContainsLine(tr, "stWaiting::on_exit\n"));
+    EXPECT_TRUE(ContainsLine(tr, "stAttacking::on_entry\n"));
+    EXPECT_TRUE(ContainsLine(tr, "EAManager::StartAttacking\n"));
+}
+
+TEST(EAManagerRuntime, PBITBlockedWhileAttacking)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    m.process_event(evStartAttacking{});
+
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+    m.process_event(evRequestBIT{BITType::PBIT});
+
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+    const auto& tr = m.GetTrace();
+
+    EXPECT_FALSE(ContainsLine(tr, "stBIT::on_entry\n"));
+
+    EXPECT_GE(CountLine(tr,
+        "EAManager::IsAttacking -> 1\n"), 1);
+}
+
+TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    m.process_event(evStartAttacking{});
+
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+    m.process_event(evRequestBIT{BITType::IBIT});
+
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+    const auto& tr = m.GetTrace();
+
+    EXPECT_TRUE(ContainsLine(tr, "stBIT::on_entry\n"));
+    EXPECT_TRUE(ContainsLine(tr, "stBIT::on_exit\n"));
+
+    EXPECT_TRUE(ContainsLine(tr, "stAttacking::on_exit\n"));
+    EXPECT_TRUE(ContainsLine(tr, "EAManager::StopAttacking\n"));
+
+    EXPECT_TRUE(ContainsLine(tr,
+        "EAManager::RequestBIT -> eBITType: 2\n"));
+}
+
+TEST(EAManagerRuntime, FullScenario_StrictTrace)
+{
+    EAManager m;
+    m.initiate();
+
+    m.process_event(evTick{5});
+    m.process_event(evActivate{});
+
+    m.process_event(evTick{5});
+
+    m.process_event(evStartScanning{});
+    m.process_event(evStartAttacking{});
+
+    m.process_event(evStopScanning{});
+    m.process_event(evStartAttacking{});
+
+    m.process_event(evRequestBIT{BITType::IBIT});
+
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+    const std::vector<std::string> expected =
+    {
+        "stIdle::on_entry\n",
+        "stIdle::on_exit\n",
+        "stOperational::on_entry\n",
+        "stStartUp::on_entry\n",
+
+        "EAManager::AddTick -> m_iTickCounter: 5\n",
+
+        "stStartUp::on_exit\n",
+        "EAManager::ActivateSystem\n",
+        "stActive::on_entry\n",
+        "stWaiting::on_entry\n",
+
+        "EAManager::AddTick -> m_iTickCounter: 10\n",
+
+        "EAManager::StartScanning\n",
+        "EAManager::IsScanning -> 1\n",
+
+        "EAManager::StopScanning\n",
+        "EAManager::IsScanning -> 0\n",
+
+        "stWaiting::on_exit\n",
+        "stAttacking::on_entry\n",
+        "EAManager::StartAttacking\n",
+
+        "EAManager::IsAttacking -> 1\n",
+        "stAttacking::on_exit\n",
+        "EAManager::StopAttacking\n",
+        "stActive::on_exit\n",
+        "EAManager::RequestBIT -> eBITType: 2\n",
+        "stBIT::on_entry\n",
+        "stBIT::on_exit\n",
+        "stActive::on_entry\n",
+        "stWaiting::on_entry\n"
+    };
+
+    ExpectTraceEq(m.GetTrace(), expected);
+
+    EXPECT_EQ(CountLine(m.GetTrace(),
+        "EAManager::IsScanning -> 0\n"), 1);
+
+    EXPECT_EQ(CountLine(m.GetTrace(),
+        "EAManager::IsScanning -> 1\n"), 1);
+}

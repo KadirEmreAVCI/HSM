@@ -1,8 +1,10 @@
 #ifndef EA_MANAGER_H
 #define EA_MANAGER_H
 
-#include <iostream>
+#include <string>
+#include <vector>
 #include <variant>
+#include <iostream>
 
 #include "state.h"
 #include "transition.h"
@@ -19,20 +21,16 @@ enum class BITType
 // Events
 // --------------------------------------------------
 
-struct evTick{
-    int iTickValue = 0;
-};
-struct evActivate{};
-struct evStartAttacking{};
-struct evStopAttacking{};
-struct evStartScanning{};
-struct evStopScanning{};
-struct evRequestBIT{
-    BITType eBITType = BITType::PBIT;
-};
+struct evTick { int iTickValue = 0; };
+struct evActivate {};
+struct evStartAttacking {};
+struct evStopAttacking {};
+struct evStartScanning {};
+struct evStopScanning {};
+struct evRequestBIT { BITType eBITType = BITType::PBIT; };
 
 // --------------------------------------------------
-// Machine forward declaration
+// Forward Declaration
 // --------------------------------------------------
 
 struct EAManager;
@@ -44,54 +42,54 @@ struct EAManager;
 struct stIdle : fsm::state<stIdle, EAManager>
 {
     using fsm::state<stIdle, EAManager>::state;
-    virtual void on_entry() override;
-    virtual void on_exit() override;
+    void on_entry() override;
+    void on_exit() override;
 };
 
 struct stOperational : fsm::state<stOperational, EAManager>
 {
     using fsm::state<stOperational, EAManager>::state;
-    virtual void on_entry() override;
-    virtual void on_exit() override;
+    void on_entry() override;
+    void on_exit() override;
 };
 
 struct stStartUp : fsm::state<stStartUp, EAManager>
 {
     using fsm::state<stStartUp, EAManager>::state;
-    virtual void on_entry() override;
-    virtual void on_exit() override;
+    void on_entry() override;
+    void on_exit() override;
 };
 
 struct stActive : fsm::state<stActive, EAManager>
 {
     using fsm::state<stActive, EAManager>::state;
-    virtual void on_entry() override;
-    virtual void on_exit() override;
+    void on_entry() override;
+    void on_exit() override;
 };
 
 struct stWaiting : fsm::state<stWaiting, EAManager>
 {
     using fsm::state<stWaiting, EAManager>::state;
-    virtual void on_entry() override;
-    virtual void on_exit() override;
+    void on_entry() override;
+    void on_exit() override;
 };
 
 struct stAttacking : fsm::state<stAttacking, EAManager>
 {
     using fsm::state<stAttacking, EAManager>::state;
-    virtual void on_entry() override;
-    virtual void on_exit() override;
+    void on_entry() override;
+    void on_exit() override;
 };
 
 struct stBIT : fsm::state<stBIT, EAManager>
 {
     using fsm::state<stBIT, EAManager>::state;
-    virtual void on_entry() override;
-    virtual void on_exit() override;
+    void on_entry() override;
+    void on_exit() override;
 };
 
 // --------------------------------------------------
-// Parent specializations
+// Parent relations
 // --------------------------------------------------
 
 template <>
@@ -139,7 +137,7 @@ struct ActionEvRequestBIT
 };
 
 // --------------------------------------------------
-// Guard
+// Guards
 // --------------------------------------------------
 
 struct GuardEvStartAttacking
@@ -164,144 +162,144 @@ struct EAManager :
         fsm::transition_table<
             fsm::default_transition<stOperational, stStartUp>,
             fsm::default_transition<stActive, stWaiting>,
-            fsm::transition<stIdle, fsm::no_event, stOperational, fsm::no_action, fsm::always_true_guard>,
-            fsm::transition<stStartUp, evActivate, stActive, ActionEvActivate, fsm::always_true_guard>,
+            fsm::transition<stIdle, fsm::no_event, stOperational>,
+            fsm::transition<stStartUp, evActivate, stActive, ActionEvActivate>,
             fsm::transition<stWaiting, evStartAttacking, stAttacking, fsm::no_action, GuardEvStartAttacking>,
-            fsm::transition<stAttacking, evStopAttacking, stWaiting, fsm::no_action, fsm::always_true_guard>,
+            fsm::transition<stAttacking, evStopAttacking, stWaiting>,
             fsm::transition<stActive, evRequestBIT, stBIT, ActionEvRequestBIT, GuardEvRequestBIT>,
-            fsm::transition<stBIT, fsm::no_event, stActive, fsm::no_action, fsm::always_true_guard>,
+            fsm::transition<stBIT, fsm::no_event, stActive>,
             fsm::internal_transition<stOperational, evTick, ActionEvTick>,
             fsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning>,
             fsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning>
         >
     >
-{
-    void AddTick(int iValue)
+{   
+    EAManager(bool blPrintTrace = false) : m_blPrintTrace(blPrintTrace) {}
+
+    // -------------------------
+    // Trace
+    // -------------------------
+
+    void AddTrace(const std::string& s) const
     {
-        m_iTickCounter += iValue;
-        std::cout << "EAManager::AddTick -> m_iTickCounter: " << m_iTickCounter << "\n";
+        if (m_blPrintTrace)
+        {
+            std::cout << s;
+        }
+        trace.push_back(s);
     }
-    void ActivateSystem()  
+
+    const std::vector<std::string>& GetTrace() const
     {
-        std::cout << "EAManager::ActivateSystem\n";
+        return trace;
     }
+
+    void ResetTrace() const
+    {
+        trace.clear();
+    }
+
+    // -------------------------
+    // Business Logic
+    // -------------------------
+
+    void AddTick(int val)
+    {
+        m_iTickCounter += val;
+        AddTrace("EAManager::AddTick -> m_iTickCounter: " + std::to_string(m_iTickCounter) + "\n");
+    }
+
+    void ActivateSystem()
+    {
+        AddTrace("EAManager::ActivateSystem\n");
+    }
+
     void StartScanning()
     {
-        std::cout << "EAManager::StartScanning\n";
         m_blScanning = true;
-    } 
+        AddTrace("EAManager::StartScanning\n");
+    }
+
     void StopScanning()
     {
-        std::cout << "EAManager::StopScanning\n";
         m_blScanning = false;
+        AddTrace("EAManager::StopScanning\n");
     }
+
     bool IsScanning() const
     {
-        std::cout << "EAManager::IsScanning -> " << m_blScanning << "\n";
+        AddTrace("EAManager::IsScanning -> " + std::string(m_blScanning ? "1\n" : "0\n"));
         return m_blScanning;
     }
+
     void StartAttacking()
     {
-        std::cout << "EAManager::StartAttacking\n";
         m_blAttacking = true;
+        AddTrace("EAManager::StartAttacking\n");
     }
+
     void StopAttacking()
     {
-        std::cout << "EAManager::StopAttacking\n";
         m_blAttacking = false;
+        AddTrace("EAManager::StopAttacking\n");
     }
+
     bool IsAttacking() const
     {
-        std::cout << "EAManager::IsAttacking -> " << m_blAttacking << "\n";
+        AddTrace("EAManager::IsAttacking -> " + std::string(m_blAttacking ? "1\n" : "0\n"));
         return m_blAttacking;
-    } 
-    void RequestBIT(BITType eBITType)
-    {
-        std::cout << "EAManager::RequestBIT -> eBITType: " << static_cast<int>(eBITType) << "\n";
     }
+
+    void RequestBIT(BITType type)
+    {
+        AddTrace("EAManager::RequestBIT -> eBITType: " + std::to_string(static_cast<int>(type)) + "\n");
+    }
+
+    const bool m_blPrintTrace = false;
     bool m_blScanning = false;
     bool m_blAttacking = false;
     int  m_iTickCounter = 0;
+
+private:
+    mutable std::vector<std::string> trace;
 };
 
 // --------------------------------------------------
-// State's on_entry/on_exit implementations
+// State Implementations
 // --------------------------------------------------
 
-inline void stIdle::on_entry()
-{
-    std::cout << "stIdle::on_entry\n";
-}
+inline void stIdle::on_entry()       { machine().AddTrace("stIdle::on_entry\n"); }
+inline void stIdle::on_exit()        { machine().AddTrace("stIdle::on_exit\n"); }
 
-inline void stIdle::on_exit()
-{
-    std::cout << "stIdle::on_exit\n";
-}
+inline void stOperational::on_entry(){ machine().AddTrace("stOperational::on_entry\n"); }
+inline void stOperational::on_exit() { machine().AddTrace("stOperational::on_exit\n"); }
 
-inline void stOperational::on_entry()
-{
-    std::cout << "stOperational::on_entry\n";
-}
+inline void stStartUp::on_entry()    { machine().AddTrace("stStartUp::on_entry\n"); }
+inline void stStartUp::on_exit()     { machine().AddTrace("stStartUp::on_exit\n"); }
 
-inline void stOperational::on_exit()
-{
-    std::cout << "stOperational::on_exit\n";
-}
+inline void stActive::on_entry()     { machine().AddTrace("stActive::on_entry\n"); }
+inline void stActive::on_exit()      { machine().AddTrace("stActive::on_exit\n"); }
 
-inline void stStartUp::on_entry()
-{
-    std::cout << "stStartUp::on_entry\n";
-}
-
-inline void stStartUp::on_exit()
-{
-    std::cout << "stStartUp::on_exit\n";
-}
-
-inline void stActive::on_entry()
-{
-    std::cout << "stActive::on_entry\n";
-}
-
-inline void stActive::on_exit()
-{
-    std::cout << "stActive::on_exit\n";
-}
-
-inline void stWaiting::on_entry()
-{
-    std::cout << "stWaiting::on_entry\n";
-}
-
-inline void stWaiting::on_exit()
-{
-    std::cout << "stWaiting::on_exit\n";
-}
+inline void stWaiting::on_entry()    { machine().AddTrace("stWaiting::on_entry\n"); }
+inline void stWaiting::on_exit()     { machine().AddTrace("stWaiting::on_exit\n"); }
 
 inline void stAttacking::on_entry()
 {
-    std::cout << "stAttacking::on_entry\n";
-    machine().StartAttacking(); // set attacking flag when entering stAttacking
+    machine().AddTrace("stAttacking::on_entry\n");
+    machine().StartAttacking();
 }
 
 inline void stAttacking::on_exit()
 {
-    std::cout << "stAttacking::on_exit\n";
-    machine().StopAttacking(); // ensure attacking flag is reset when exiting stAttacking
+    machine().AddTrace("stAttacking::on_exit\n");
+    machine().StopAttacking();
 }
 
-inline void stBIT::on_entry()
-{
-    std::cout << "stBIT::on_entry\n";
-}
-
-inline void stBIT::on_exit()
-{
-    std::cout << "stBIT::on_exit\n";
-}
+inline void stBIT::on_entry()        { machine().AddTrace("stBIT::on_entry\n"); }
+inline void stBIT::on_exit()         { machine().AddTrace("stBIT::on_exit\n"); }
 
 // --------------------------------------------------
-// Action implementations
+// Action Implementations
 // --------------------------------------------------
 
 inline void ActionEvTick::operator()(EAManager& m, const evTick& ev) const
@@ -330,7 +328,7 @@ inline void ActionEvRequestBIT::operator()(EAManager& m, const evRequestBIT& ev)
 }
 
 // --------------------------------------------------
-// Guard implementation
+// Guard Implementations
 // --------------------------------------------------
 
 inline bool GuardEvStartAttacking::operator()(const EAManager& m, const evStartAttacking&) const
@@ -343,4 +341,4 @@ inline bool GuardEvRequestBIT::operator()(const EAManager& m, const evRequestBIT
     return !m.IsAttacking() || (ev.eBITType == BITType::IBIT);
 }
 
-#endif // EA_MANAGER_H
+#endif

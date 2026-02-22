@@ -6,7 +6,7 @@
 
 int main()
 {
-    EAManager rEAManager;
+    EAManager rEAManager(true); // Enable trace output
     rEAManager.initiate();
     rEAManager.process_event(evTick{5});         
     rEAManager.process_event(evStartScanning{}); // should be ignored since we're not active yet
