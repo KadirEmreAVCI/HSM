@@ -667,11 +667,8 @@ namespace fsm
                     typename T0::guard g{};
                     if (g(derived(), ev))
                     {
-                        if (g(derived(), ev))
-                        {
-                            apply_external_hsm_<CurLeaf, typename T0::dst, typename T0::act>(curObj, ev);
-                            return true;
-                        }
+                        apply_external_hsm_<CurLeaf, typename T0::dst, typename T0::act>(curObj, ev);
+                        return true;
                     }
                     return try_table_impl_for_src_<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
                 }
