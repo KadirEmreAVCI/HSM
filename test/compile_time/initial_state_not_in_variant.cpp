@@ -3,11 +3,11 @@
 
 struct M;
 
-struct A : fsm::state<A, M> { using state::state; };
-struct B : fsm::state<B, M> { using state::state; };
+struct A : hsm::state<A, M> { using state::state; };
+struct B : hsm::state<B, M> { using state::state; };
 
-using Table = fsm::transition_table<>;
+using Table = hsm::transition_table<>;
 
-struct M : fsm::state_machine<M, A, std::variant<B>, Table> {};
+struct M : hsm::state_machine<M, A, std::variant<B>, Table> {};
 
 int main() { return 0; }

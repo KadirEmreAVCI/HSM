@@ -5,16 +5,16 @@ namespace ct_dest_bad_def
 {
     struct M;
 
-    struct S1 : fsm::state<S1, M> { using fsm::state<S1, M>::state; };
-    struct S2 : fsm::state<S2, M> { using fsm::state<S2, M>::state; };
-    struct S3 : fsm::state<S3, M> { using fsm::state<S3, M>::state; };
+    struct S1 : hsm::state<S1, M> { using hsm::state<S1, M>::state; };
+    struct S2 : hsm::state<S2, M> { using hsm::state<S2, M>::state; };
+    struct S3 : hsm::state<S3, M> { using hsm::state<S3, M>::state; };
 
-    struct M : fsm::state_machine<
+    struct M : hsm::state_machine<
         M,
         S1,
         std::variant<S1, S2>,
-        fsm::transition_table<
-            fsm::default_transition<S1, S3>
+        hsm::transition_table<
+            hsm::default_transition<S1, S3>
         >
     > {};
 }

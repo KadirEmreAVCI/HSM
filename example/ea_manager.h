@@ -39,51 +39,51 @@ struct EAManager;
 // States
 // --------------------------------------------------
 
-struct stIdle : fsm::state<stIdle, EAManager>
+struct stIdle : hsm::state<stIdle, EAManager>
 {
-    using fsm::state<stIdle, EAManager>::state;
+    using hsm::state<stIdle, EAManager>::state;
     void on_entry() override;
     void on_exit() override;
 };
 
-struct stOperational : fsm::state<stOperational, EAManager>
+struct stOperational : hsm::state<stOperational, EAManager>
 {
-    using fsm::state<stOperational, EAManager>::state;
+    using hsm::state<stOperational, EAManager>::state;
     void on_entry() override;
     void on_exit() override;
 };
 
-struct stStartUp : fsm::state<stStartUp, EAManager>
+struct stStartUp : hsm::state<stStartUp, EAManager>
 {
-    using fsm::state<stStartUp, EAManager>::state;
+    using hsm::state<stStartUp, EAManager>::state;
     void on_entry() override;
     void on_exit() override;
 };
 
-struct stActive : fsm::state<stActive, EAManager>
+struct stActive : hsm::state<stActive, EAManager>
 {
-    using fsm::state<stActive, EAManager>::state;
+    using hsm::state<stActive, EAManager>::state;
     void on_entry() override;
     void on_exit() override;
 };
 
-struct stWaiting : fsm::state<stWaiting, EAManager>
+struct stWaiting : hsm::state<stWaiting, EAManager>
 {
-    using fsm::state<stWaiting, EAManager>::state;
+    using hsm::state<stWaiting, EAManager>::state;
     void on_entry() override;
     void on_exit() override;
 };
 
-struct stAttacking : fsm::state<stAttacking, EAManager>
+struct stAttacking : hsm::state<stAttacking, EAManager>
 {
-    using fsm::state<stAttacking, EAManager>::state;
+    using hsm::state<stAttacking, EAManager>::state;
     void on_entry() override;
     void on_exit() override;
 };
 
-struct stBIT : fsm::state<stBIT, EAManager>
+struct stBIT : hsm::state<stBIT, EAManager>
 {
-    using fsm::state<stBIT, EAManager>::state;
+    using hsm::state<stBIT, EAManager>::state;
     void on_entry() override;
     void on_exit() override;
 };
@@ -93,19 +93,19 @@ struct stBIT : fsm::state<stBIT, EAManager>
 // --------------------------------------------------
 
 template <>
-struct fsm::parent_of<stStartUp> { using type = stOperational; };
+struct hsm::parent_of<stStartUp> { using type = stOperational; };
 
 template <>
-struct fsm::parent_of<stActive> { using type = stOperational; };
+struct hsm::parent_of<stActive> { using type = stOperational; };
 
 template <>
-struct fsm::parent_of<stWaiting> { using type = stActive; };
+struct hsm::parent_of<stWaiting> { using type = stActive; };
 
 template <>
-struct fsm::parent_of<stAttacking> { using type = stActive; };
+struct hsm::parent_of<stAttacking> { using type = stActive; };
 
 template <>
-struct fsm::parent_of<stBIT> { using type = stOperational; };
+struct hsm::parent_of<stBIT> { using type = stOperational; };
 
 // --------------------------------------------------
 // Actions
@@ -155,22 +155,22 @@ struct GuardEvRequestBIT
 // --------------------------------------------------
 
 struct EAManager :
-    fsm::state_machine<
+    hsm::state_machine<
         EAManager,
         stIdle,
         std::variant<stIdle, stOperational, stStartUp, stActive, stWaiting, stAttacking, stBIT>,
-        fsm::transition_table<
-            fsm::default_transition<stOperational, stStartUp>,
-            fsm::default_transition<stActive, stWaiting>,
-            fsm::transition<stIdle, fsm::no_event, stOperational>,
-            fsm::transition<stStartUp, evActivate, stActive, ActionEvActivate>,
-            fsm::transition<stWaiting, evStartAttacking, stAttacking, fsm::no_action, GuardEvStartAttacking>,
-            fsm::transition<stAttacking, evStopAttacking, stWaiting>,
-            fsm::transition<stActive, evRequestBIT, stBIT, ActionEvRequestBIT, GuardEvRequestBIT>,
-            fsm::transition<stBIT, fsm::no_event, stActive>,
-            fsm::internal_transition<stOperational, evTick, ActionEvTick>,
-            fsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning>,
-            fsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning>
+        hsm::transition_table<
+            hsm::default_transition<stOperational, stStartUp>,
+            hsm::default_transition<stActive, stWaiting>,
+            hsm::transition<stIdle, hsm::no_event, stOperational>,
+            hsm::transition<stStartUp, evActivate, stActive, ActionEvActivate>,
+            hsm::transition<stWaiting, evStartAttacking, stAttacking, hsm::no_action, GuardEvStartAttacking>,
+            hsm::transition<stAttacking, evStopAttacking, stWaiting>,
+            hsm::transition<stActive, evRequestBIT, stBIT, ActionEvRequestBIT, GuardEvRequestBIT>,
+            hsm::transition<stBIT, hsm::no_event, stActive>,
+            hsm::internal_transition<stOperational, evTick, ActionEvTick>,
+            hsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning>,
+            hsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning>
         >
     >
 {   

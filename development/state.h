@@ -2,7 +2,7 @@
 #define STATE_H
 #include <type_traits>
 
-namespace fsm   
+namespace hsm   
 {
     template <typename Machine>
     struct state_tag {};

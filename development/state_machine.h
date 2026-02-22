@@ -9,7 +9,7 @@
 #include "state.h"
 #include "transition.h"
 
-namespace fsm
+namespace hsm
 {
     // =========================================================================
     // Compile-time: unique (src,event) among event-driven transitions
@@ -526,7 +526,7 @@ namespace fsm
             "InitialState must be in the machine state list.");
 
         static_assert((is_state_of_v<States, DerivedMachine> && ...),
-            "All states must derive from fsm::state<DerivedState, Machine>.");
+            "All states must derive from hsm::state<DerivedState, Machine>.");
 
         static_assert((std::is_constructible_v<States, DerivedMachine&> && ...),
             "All states must be constructible from (Machine&). Use using state::state;");
@@ -545,7 +545,7 @@ namespace fsm
 
         static_assert((unconditional_external_exclusive<States, table_type>::value && ...),
             "Unconditional external transition rule violated:\n"
-            " - At most one unconditional external transition per state (ev = fsm::no_event)\n"
+            " - At most one unconditional external transition per state (ev = hsm::no_event)\n"
             " - If present, it must be the ONLY outgoing transition from that state "
             "(no default, no internal, no other external).");
 
@@ -915,6 +915,6 @@ namespace fsm
         bool initiated_{false};
     }; // class state_machine
 
-} // namespace fsm
+} // namespace hsm
 
 #endif // STATEMACHINE_H

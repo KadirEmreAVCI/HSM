@@ -3,17 +3,17 @@
 
 struct M;
 
-struct A : fsm::state<A, M> { using state::state; };
-struct B : fsm::state<B, M> { using state::state; };
-struct C : fsm::state<C, M> { using state::state; };
+struct A : hsm::state<A, M> { using state::state; };
+struct B : hsm::state<B, M> { using state::state; };
+struct C : hsm::state<C, M> { using state::state; };
 
 struct Ev {};
 
-using BadTable = fsm::transition_table<
-    fsm::default_transition<A, B>,
-    fsm::transition<A, Ev, C>
+using BadTable = hsm::transition_table<
+    hsm::default_transition<A, B>,
+    hsm::transition<A, Ev, C>
 >;
 
-struct M : fsm::state_machine<M, A, std::variant<A, B, C>, BadTable> {};
+struct M : hsm::state_machine<M, A, std::variant<A, B, C>, BadTable> {};
 
 int main() { return 0; }

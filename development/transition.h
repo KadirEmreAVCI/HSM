@@ -3,7 +3,7 @@
 
 #include <type_traits>
 
-namespace fsm
+namespace hsm
 {
     // --------------------------------------------------
     // Default guard/action

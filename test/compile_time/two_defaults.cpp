@@ -1,17 +1,17 @@
 #include <variant>
-#include <fsm/state_machine.h>
+#include "state_machine.h"
 
 struct M;
 
-struct A : fsm::state<A, M> { using state::state; };
-struct B : fsm::state<B, M> { using state::state; };
-struct C : fsm::state<C, M> { using state::state; };
+struct A : hsm::state<A, M> { using state::state; };
+struct B : hsm::state<B, M> { using state::state; };
+struct C : hsm::state<C, M> { using state::state; };
 
-using BadTable = fsm::transition_table<
-    fsm::default_transition<A, B>,
-    fsm::default_transition<A, C>
+using BadTable = hsm::transition_table<
+    hsm::default_transition<A, B>,
+    hsm::default_transition<A, C>
 >;
 
-struct M : fsm::state_machine<M, A, std::variant<A, B, C>, BadTable> {};
+struct M : hsm::state_machine<M, A, std::variant<A, B, C>, BadTable> {};
 
 int main() { return 0; }

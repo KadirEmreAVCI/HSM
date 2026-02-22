@@ -6,17 +6,17 @@ namespace ct_parent_missing_default
     struct Ev {};
     struct M;
 
-    struct Operational : fsm::state<Operational, M> { using fsm::state<Operational, M>::state; };
-    struct Running : fsm::state<Running, M> { using fsm::state<Running, M>::state; };
+    struct Operational : hsm::state<Operational, M> { using hsm::state<Operational, M>::state; };
+    struct Running : hsm::state<Running, M> { using hsm::state<Running, M>::state; };
 
-    template <> struct fsm::parent_of<Running> { using type = Operational; };
+    template <> struct hsm::parent_of<Running> { using type = Operational; };
 
-    struct M : fsm::state_machine<
+    struct M : hsm::state_machine<
         M,
         Running,
         std::variant<Operational, Running>,
-        fsm::transition_table<
-            fsm::internal_transition<Running, Ev, fsm::no_action>
+        hsm::transition_table<
+            hsm::internal_transition<Running, Ev, hsm::no_action>
         >
     > {};
 }
