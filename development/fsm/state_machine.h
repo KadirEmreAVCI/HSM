@@ -355,15 +355,22 @@ namespace fsm
         using type = void;
     };
 
+    // When they match, this is the LCA
+    template <typename X>
+    struct lca_same_depth<X, X>
+    {
+        using type = X;
+    };
+
+    // Otherwise, climb both
     template <typename X, typename Y>
     struct lca_same_depth
     {
-        using type = typename std::conditional_t<
-                        std::is_same_v<X, Y>,
-                        X,
-                        lca_same_depth<typename parent_of<X>::type, typename parent_of<Y>::type>>::type;
+        using type = typename lca_same_depth<
+            typename parent_of<X>::type,
+            typename parent_of<Y>::type
+        >::type;
     };
-
 
     template <typename A, typename B>
     struct lca
@@ -690,17 +697,11 @@ namespace fsm
                     typename T0::guard g{};
                     if (g(derived(), ev))
                     {
-                        // exit current
-                        std::visit([](auto& st) { maybe_call_on_exit(st); }, current_);
-
-                        // action
-                        typename T0::act{}(derived(), ev);
-
-                        // enter destination
-                        current_.template emplace<typename T0::dst>(derived());
-                        enter_current_state_();
-
-                        return true;
+                        if (g(derived(), ev))
+                        {
+                            apply_external_hsm_<CurLeaf, typename T0::dst, typename T0::act>(curObj, ev);
+                            return true;
+                        }
                     }
                     return try_table_impl_for_src_<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
                 }

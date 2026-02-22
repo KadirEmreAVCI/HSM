@@ -12,6 +12,8 @@ struct evJCRAktif{};
 struct evTaarruzVar{};
 struct evTaarruzYok{};
 struct evAktifTeknikDurumuDegerlendir{};
+struct evCITBasla{};
+struct evCITBitir{};
 
 struct evARABaslaJCRDen{
     int iTekHedefEtModu = 0;
@@ -62,6 +64,13 @@ struct Bekleme : fsm::state<Bekleme, ATUJCRDenetleyici>
 struct Taarruz : fsm::state<Taarruz, ATUJCRDenetleyici>
 {
     using fsm::state<Taarruz, ATUJCRDenetleyici>::state;
+    void on_entry();
+    void on_exit();
+};
+
+struct CIT : fsm::state<CIT, ATUJCRDenetleyici>
+{
+    using fsm::state<CIT, ATUJCRDenetleyici>::state;
     void on_entry();
     void on_exit();
 };
@@ -117,7 +126,7 @@ struct ATUJCRDenetleyici :
     fsm::state_machine<
         ATUJCRDenetleyici,
         Bos,
-        std::variant<Bos, JCRAcilis, JCRAktif, Bekleme, Taarruz>,
+        std::variant<Bos, JCRAcilis, JCRAktif, Bekleme, Taarruz, CIT>,
         fsm::transition_table<
             fsm::default_transition<JCRAktif, Bekleme>,
             fsm::internal_transition<JCRAktif, evARABaslaJCRDen, ARABaslaJCRDenAction>,
@@ -126,7 +135,9 @@ struct ATUJCRDenetleyici :
             fsm::transition<JCRAcilis, evJCRAktif, JCRAktif, PrintLogJCRAktifAction>,
             fsm::transition<Bekleme, evTaarruzVar, Taarruz, fsm::no_action, TaarruzGuard>,
             fsm::transition<Taarruz, evTaarruzYok, Bekleme>,
-            fsm::transition<Taarruz, evAktifTeknikDurumuDegerlendir, Taarruz>
+            fsm::transition<Taarruz, evAktifTeknikDurumuDegerlendir, Taarruz>,
+            fsm::transition<JCRAktif, evCITBasla, CIT>,
+            fsm::transition<CIT, evCITBitir, JCRAktif>
         >
     >
 {
@@ -218,6 +229,18 @@ inline void Taarruz::on_exit()
     std::cout << "Taarruz::on_exit\n";
 }
 
+inline void CIT::on_entry()
+{
+    std::cout << "CIT::on_entry machine counter = "
+              << machine().m_iCounter++
+              << "\n";
+}
+
+inline void CIT::on_exit()
+{
+    std::cout << "CIT::on_exit\n";
+}
+
 // --------------------------------------------------
 // Action implementations
 // --------------------------------------------------
@@ -290,4 +313,6 @@ int main()
     rATUJCRDenetleyici.process_event(evTaarruzVar{});
     rATUJCRDenetleyici.process_event(evAktifTeknikDurumuDegerlendir{});
     rATUJCRDenetleyici.process_event(evAktifTeknikDurumuDegerlendir{});
+    rATUJCRDenetleyici.process_event(evCITBasla{});
+    rATUJCRDenetleyici.process_event(evCITBitir{});
 }
