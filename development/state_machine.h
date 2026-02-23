@@ -707,8 +707,10 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
         template <typename Event>
         bool GEN(const Event& ev)
         {
-            static_assert(variant_contains<event_variant, std::decay_t<Event>>::value,
-                          "HSM: GEN() called with an event type not present in the transition table.");
+            HSM_STATIC_ASSERT((variant_contains<event_variant, std::decay_t<Event>>::value),
+                "GEN() called with an event type not present in the transition table."
+            );
+
             return enqueue_event(event_variant{ev});
         }
 
@@ -716,8 +718,11 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
         bool GEN(Event&& ev)
         {
             using E = std::decay_t<Event>;
-            static_assert(variant_contains<event_variant, E>::value,
-                          "HSM: GEN() called with an event type not present in the transition table.");
+
+            HSM_STATIC_ASSERT((variant_contains<event_variant, E>::value),
+                "GEN() called with an event type not present in the transition table."
+            );
+
             return enqueue_event(event_variant{std::forward<Event>(ev)});
         }
 
