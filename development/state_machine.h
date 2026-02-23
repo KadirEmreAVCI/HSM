@@ -556,9 +556,9 @@ namespace hsm
             current_.template emplace<InitialState>(derived());
             initiated_ = true;
 
-            enter_current_state_();
-            apply_default_chain_();
-            apply_unconditional_chain_();
+            enter_current_state();
+            run_default_transition_chain();
+            run_unconditional_transition_chain();
         }
 
         template <typename Event>
@@ -569,13 +569,13 @@ namespace hsm
             const bool handled = std::visit([this, &ev](auto& cur)
             {
                 using CurState = std::decay_t<decltype(cur)>;
-                return try_apply_bubble_<CurState, Event>(cur, ev);
+                return try_dispatch_with_bubbling<CurState, Event>(cur, ev);
             }, current_);
 
             if (handled)
             {
-                apply_default_chain_();
-                apply_unconditional_chain_();
+                run_default_transition_chain();
+                run_unconditional_transition_chain();
             }
         }
 
@@ -594,7 +594,7 @@ namespace hsm
         const derived_type& derived() const{ return static_cast<const derived_type&>(*this); }
 
     private:
-        void enter_current_state_()
+        void enter_current_state()
         {
             std::visit([](auto& st) {
                 using T = std::decay_t<decltype(st)>;
@@ -608,10 +608,10 @@ namespace hsm
         // ----------------------------------------------------------
 
         template <typename CurLeaf, typename Event, typename CurObj>
-        bool try_apply_bubble_(CurObj& curObj, const Event& ev)
+        bool try_dispatch_with_bubbling(CurObj& curObj, const Event& ev)
         {
             // First try transitions declared on the leaf itself
-            if (try_apply_for_src_<CurLeaf, CurLeaf, Event>(curObj, ev))
+            if (try_dispatch_for_source<CurLeaf, CurLeaf, Event>(curObj, ev))
                 return true;
 
             // If not handled, bubble to parent chain
@@ -619,42 +619,42 @@ namespace hsm
             if constexpr (std::is_same<P, void>::value)
                 return false;
             else
-                return try_apply_bubble_from_<CurLeaf, P, Event>(curObj, ev);
+                return try_dispatch_bubbling_from<CurLeaf, P, Event>(curObj, ev);
         }
 
         template <typename CurLeaf, typename SrcCandidate, typename Event, typename CurObj>
-        bool try_apply_bubble_from_(CurObj& curObj, const Event& ev)
+        bool try_dispatch_bubbling_from(CurObj& curObj, const Event& ev)
         {
-            if (try_apply_for_src_<CurLeaf, SrcCandidate, Event>(curObj, ev))
+            if (try_dispatch_for_source<CurLeaf, SrcCandidate, Event>(curObj, ev))
                 return true;
 
             using P = typename parent_of<SrcCandidate>::type;
             if constexpr (std::is_same<P, void>::value)
                 return false;
             else
-                return try_apply_bubble_from_<CurLeaf, P, Event>(curObj, ev);
+                return try_dispatch_bubbling_from<CurLeaf, P, Event>(curObj, ev);
         }
 
         template <typename CurLeaf, typename SrcCandidate, typename Event, typename CurObj>
-        bool try_apply_for_src_(CurObj& curObj, const Event& ev)
+        bool try_dispatch_for_source(CurObj& curObj, const Event& ev)
         {
-            return try_table_impl_for_src_<CurLeaf, SrcCandidate, Event>(table_type{}, curObj, ev);
+            return try_dispatch_in_table_for_source_impl<CurLeaf, SrcCandidate, Event>(table_type{}, curObj, ev);
         }
 
         template <typename CurLeaf, typename SrcCandidate, typename Event, typename CurObj>
-        bool try_table_impl_for_src_(transition_table<>, CurObj&, const Event&)
+        bool try_dispatch_in_table_for_source_impl(transition_table<>, CurObj&, const Event&)
         {
             return false;
         }
 
         template <typename CurLeaf, typename SrcCandidate, typename Event,
         typename CurObj, typename T0, typename... Rest>
-        bool try_table_impl_for_src_(transition_table<T0, Rest...>, CurObj& curObj, const Event& ev)
+        bool try_dispatch_in_table_for_source_impl(transition_table<T0, Rest...>, CurObj& curObj, const Event& ev)
         {
             // Default transitions are not event-driven
             if constexpr (is_default_transition<T0>::value)
             {
-                return try_table_impl_for_src_<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
+                return try_dispatch_in_table_for_source_impl<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
             }
             else if constexpr (std::is_same<typename T0::src, SrcCandidate>::value && std::is_same<typename T0::ev, Event>::value)
             {
@@ -669,15 +669,15 @@ namespace hsm
                     typename T0::guard g{};
                     if (g(derived(), ev))
                     {
-                        apply_external_hsm_<CurLeaf, typename T0::dst, typename T0::act>(curObj, ev);
+                        execute_external_transition<CurLeaf, typename T0::dst, typename T0::act>(curObj, ev);
                         return true;
                     }
-                    return try_table_impl_for_src_<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
+                    return try_dispatch_in_table_for_source_impl<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
                 }
             }
             else
             {
-                return try_table_impl_for_src_<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
+                return try_dispatch_in_table_for_source_impl<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
             }
         }
 
@@ -686,7 +686,7 @@ namespace hsm
         // ----------------------------------------------------------
 
         template <typename S>
-        void call_entry_for_type_()
+        void invoke_entry_for_state_type()
         {
             if constexpr (!std::is_same_v<S, void>)
             {   
@@ -696,7 +696,7 @@ namespace hsm
         }
 
         template <typename S>
-        void call_exit_for_type_()
+        void invoke_exit_for_state_type()
         {
             if constexpr (!std::is_same_v<S, void>)
             {
@@ -706,7 +706,7 @@ namespace hsm
         }
 
         template <typename From, typename Ancestor, typename LeafObj>
-        void exit_up_to_ancestor_(LeafObj& leafObj)
+        void exit_up_to_ancestor(LeafObj& leafObj)
         {
             // exit stored leaf object first
             leafObj.on_exit();
@@ -714,19 +714,19 @@ namespace hsm
             using P = typename parent_of<From>::type;
             if constexpr (!std::is_same<P, void>::value && !std::is_same<P, Ancestor>::value)
             {
-                call_exit_for_type_<P>();
-                exit_parents_up_to_ancestor_<P, Ancestor>();
+                invoke_exit_for_state_type<P>();
+                exit_parent_chain_up_to_ancestor<P, Ancestor>();
             }
         }
 
         template <typename S, typename Ancestor>
-        void exit_parents_up_to_ancestor_()
+        void exit_parent_chain_up_to_ancestor()
         {
             using P = typename parent_of<S>::type;
             if constexpr (!std::is_same<P, void>::value && !std::is_same<P, Ancestor>::value)
             {
-                call_exit_for_type_<P>();
-                exit_parents_up_to_ancestor_<P, Ancestor>();
+                invoke_exit_for_state_type<P>();
+                exit_parent_chain_up_to_ancestor<P, Ancestor>();
             }
         }
 
@@ -751,7 +751,7 @@ namespace hsm
         };
 
         template <typename Ancestor, typename Dest, typename... AllStates>
-        void enter_down_to_dest_()
+        void enter_down_to_destination()
         {
             if constexpr (!std::is_same<Ancestor, Dest>::value)
             {
@@ -762,34 +762,34 @@ namespace hsm
                     "Hierarchy path error: cannot find child on path.");
 
                 if constexpr (!std::is_same<Child, Dest>::value)
-                    call_entry_for_type_<Child>();
+                    invoke_entry_for_state_type<Child>();
 
-                enter_down_to_dest_<Child, Dest, AllStates...>();
+                enter_down_to_destination<Child, Dest, AllStates...>();
             }
         }
 
         template <typename CurLeaf, typename Dest, typename Act, typename LeafObj, typename Event>
-        void apply_external_hsm_(LeafObj& leafObj, const Event& ev)
+        void execute_external_transition(LeafObj& leafObj, const Event& ev)
         {
             using A = lca_t<CurLeaf, Dest>;
 
             // Exit up to LCA (exclusive)
             if constexpr (!std::is_same<CurLeaf, A>::value)
-                exit_up_to_ancestor_<CurLeaf, A>(leafObj);
+                exit_up_to_ancestor<CurLeaf, A>(leafObj);
 
             // Transition action
             Act{}(derived(), ev);
 
             // Enter from LCA down to destination (parents as temporaries)
             if constexpr (!std::is_same<A, Dest>::value)
-                enter_down_to_dest_<A, Dest, States...>();
+                enter_down_to_destination<A, Dest, States...>();
 
             // Emplace destination state and run its entry on the stored object
             current_.template emplace<Dest>(derived());
-            enter_current_state_();
+            enter_current_state();
 
             // Now enter initial substates (HSM defaults: no parent exit)
-            apply_default_chain_();
+            run_default_transition_chain();
         }
 
 
@@ -797,7 +797,7 @@ namespace hsm
         // Default transition chain
         // ----------------------------------------------------------
 
-        void apply_default_chain_()
+        void run_default_transition_chain()
         {
             constexpr std::size_t kMaxSteps = sizeof...(States) + 1u;
 
@@ -805,7 +805,7 @@ namespace hsm
             {
                 const bool took_default = std::visit([this](auto& cur){
                     using CurState = std::decay_t<decltype(cur)>;
-                    return try_default_transition_<CurState>(cur);
+                    return try_take_default_transition<CurState>(cur);
                 }, current_);
 
                 if (!took_default)
@@ -814,9 +814,9 @@ namespace hsm
         }
 
         template <typename CurState, typename CurObj>
-        bool try_default_transition_(CurObj& curObj)
+        bool try_take_default_transition(CurObj& curObj)
         {
-            return try_default_impl_<CurState>(table_type{}, curObj);
+            return try_take_default_transition_impl<CurState>(table_type{}, curObj);
         }
 
         // ----------------------------------------------------------
@@ -826,14 +826,14 @@ namespace hsm
         // ----------------------------------------------------------
 
         template <typename CurState, typename CurObj>
-        bool try_default_impl_(transition_table<>, CurObj&)
+        bool try_take_default_transition_impl(transition_table<>, CurObj&)
         {
             return false;
         }
 
         template <typename CurState, typename CurObj,
         typename T0, typename... Rest>
-        bool try_default_impl_(transition_table<T0, Rest...>, CurObj& curObj)
+        bool try_take_default_transition_impl(transition_table<T0, Rest...>, CurObj& curObj)
         {
             if constexpr (is_default_transition<T0>::value && std::is_same<typename T0::src, CurState>::value)
             {
@@ -846,17 +846,17 @@ namespace hsm
                 typename T0::act{}(derived());
 
                 current_.template emplace<typename T0::dst>(derived());
-                enter_current_state_();
+                enter_current_state();
                 return true;
             }
             else
             {
-                return try_default_impl_<CurState>(
+                return try_take_default_transition_impl<CurState>(
                 transition_table<Rest...>{}, curObj);
             }
         }
 
-        void apply_unconditional_chain_()
+        void run_unconditional_transition_chain()
         {
             // prevent infinite loops (cycles)
             constexpr std::size_t kMaxSteps = sizeof...(States) + 1u;
@@ -865,7 +865,7 @@ namespace hsm
             {
                 const bool took_uncond = std::visit([this](auto& cur){
                     using CurState = std::decay_t<decltype(cur)>;
-                    return try_unconditional_transition_<CurState>(cur);
+                    return try_take_unconditional_transition<CurState>(cur);
                 }, current_);
 
                 if (!took_uncond)
@@ -873,24 +873,24 @@ namespace hsm
 
                 // After taking an unconditional external transition, the destination
                 // may be a parent with defaults, so drive down to leaf.
-                apply_default_chain_();
+                run_default_transition_chain();
             }
         }
 
         template <typename CurState, typename CurObj>
-        bool try_unconditional_transition_(CurObj& curObj)
+        bool try_take_unconditional_transition(CurObj& curObj)
         {
-            return try_unconditional_impl_<CurState>(table_type{}, curObj);
+            return try_take_unconditional_transition_impl<CurState>(table_type{}, curObj);
         }
 
         template <typename CurState, typename CurObj>
-        bool try_unconditional_impl_(transition_table<>, CurObj&)
+        bool try_take_unconditional_transition_impl(transition_table<>, CurObj&)
         {
             return false;
         }
 
         template <typename CurState, typename CurObj, typename T0, typename... Rest>
-        bool try_unconditional_impl_(transition_table<T0, Rest...>, CurObj& curObj)
+        bool try_take_unconditional_transition_impl(transition_table<T0, Rest...>, CurObj& curObj)
         {
             if constexpr (is_unconditional_external_transition<T0>::value && std::is_same<typename T0::src, CurState>::value)
             {
@@ -903,12 +903,12 @@ namespace hsm
                 typename T0::act{}(derived(), no_event{});
 
                 current_.template emplace<typename T0::dst>(derived());
-                enter_current_state_();
+                enter_current_state();
                 return true;
             }
             else
             {
-                return try_unconditional_impl_<CurState>(transition_table<Rest...>{}, curObj);
+                return try_take_unconditional_transition_impl<CurState>(transition_table<Rest...>{}, curObj);
             }
         }
     
