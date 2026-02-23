@@ -1,298 +1,265 @@
 #include <gtest/gtest.h>
-#include <variant>
+
+#include <algorithm>
+#include <sstream>
 #include <string>
 #include <vector>
 
-#include <fsm/state_machine.h>
+#include "ea_manager.h"
 
-namespace {
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
 
-struct EvStart {};
-struct EvStop {};
-struct EvReset {};
-struct EvTick { int dt{}; };
-struct EvNop {};
-
-struct TestMachine;
-
-// ---- Trace helper
-struct Trace {
-    std::vector<std::string> log;
-    void push(const char* s) { log.emplace_back(s); }
-};
-
-// ---- States
-struct Boot : fsm::state<Boot, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Idle : fsm::state<Idle, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Starting : fsm::state<Starting, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Running : fsm::state<Running, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-struct Stopped : fsm::state<Stopped, TestMachine> {
-    using state::state;
-    void on_entry();
-    void on_exit();
-};
-
-// ---- Guards
-struct power_on_guard {
-    bool operator()(TestMachine& m, const EvStart&) const;
-};
-struct min_time_guard {
-    int threshold{10};
-    bool operator()(TestMachine& m, const EvStop&) const;
-};
-
-// ---- Actions
-struct boot_to_idle_action { void operator()(TestMachine& m) const; };
-struct starting_to_running_action { void operator()(TestMachine& m) const; };
-struct stopped_to_idle_action { void operator()(TestMachine& m) const; };
-
-struct start_action { void operator()(TestMachine& m, const EvStart&) const; };
-struct stop_action  { void operator()(TestMachine& m, const EvStop&)  const; };
-struct reset_action { void operator()(TestMachine& m, const EvReset&) const; };
-
-struct tick_internal_action { void operator()(TestMachine& m, const EvTick& e) const; };
-
-// ---- Transition table
-using TTable = fsm::transition_table<
-    fsm::default_transition<Boot,     Idle,    boot_to_idle_action>,
-    fsm::default_transition<Starting, Running, starting_to_running_action>,
-    fsm::default_transition<Stopped,  Idle,    stopped_to_idle_action>,
-
-    fsm::transition<Idle,    EvStart, Starting, start_action, power_on_guard>,
-    fsm::transition<Running, EvStop,  Stopped,  stop_action,  min_time_guard>,
-
-    // External self-transition => exit+enter
-    fsm::transition<Running, EvReset, Running,  reset_action>,
-
-    // Internal transition => action only, no exit/entry
-    fsm::internal_transition<Running, EvTick, tick_internal_action>
->;
-
-// ---- Machine
-struct TestMachine : fsm::state_machine<TestMachine, Boot,
-    std::variant<Boot, Idle, Starting, Running, Stopped>, TTable>
+static std::string Join(const std::vector<std::string>& v)
 {
-    Trace trace;
-    bool power_on = false;
-    int total_time = 0;
-    int reset_count = 0;
+    std::ostringstream os;
+    for (const auto& s : v) os << s;
+    return os.str();
+}
 
-    void handle_tick(const EvTick& e) {
-        total_time += e.dt;
-        trace.push("machine.handle_tick");
+static void ExpectTraceEq(const std::vector<std::string>& actual,
+                          const std::vector<std::string>& expected)
+{
+    if (actual != expected)
+    {
+        ADD_FAILURE() << "Trace mismatch.\n\nExpected:\n"
+                      << Join(expected)
+                      << "\nActual:\n"
+                      << Join(actual);
     }
-};
-
-// ---- Hook definitions (need complete machine)
-void Boot::on_entry()  { machine().trace.push("Boot.entry"); }
-void Boot::on_exit()   { machine().trace.push("Boot.exit"); }
-void Idle::on_entry()  { machine().trace.push("Idle.entry"); }
-void Idle::on_exit()   { machine().trace.push("Idle.exit"); }
-void Starting::on_entry(){ machine().trace.push("Starting.entry"); }
-void Starting::on_exit() { machine().trace.push("Starting.exit"); }
-void Running::on_entry(){ machine().trace.push("Running.entry"); }
-void Running::on_exit() { machine().trace.push("Running.exit"); }
-void Stopped::on_entry(){ machine().trace.push("Stopped.entry"); }
-void Stopped::on_exit() { machine().trace.push("Stopped.exit"); }
-
-// ---- Guard definitions
-bool power_on_guard::operator()(TestMachine& m, const EvStart&) const {
-    m.trace.push("guard.power_on");
-    return m.power_on;
-}
-bool min_time_guard::operator()(TestMachine& m, const EvStop&) const {
-    m.trace.push("guard.min_time");
-    return m.total_time >= threshold;
+    EXPECT_EQ(actual, expected);
 }
 
-// ---- Action definitions
-void boot_to_idle_action::operator()(TestMachine& m) const {
-    m.trace.push("default.Boot->Idle");
-    m.total_time = 0;
-    m.reset_count = 0;
-}
-void starting_to_running_action::operator()(TestMachine& m) const {
-    m.trace.push("default.Starting->Running");
-}
-void stopped_to_idle_action::operator()(TestMachine& m) const {
-    m.trace.push("default.Stopped->Idle");
-}
-
-void start_action::operator()(TestMachine& m, const EvStart&) const {
-    m.trace.push("action.start");
-}
-void stop_action::operator()(TestMachine& m, const EvStop&) const {
-    m.trace.push("action.stop");
-}
-void reset_action::operator()(TestMachine& m, const EvReset&) const {
-    m.trace.push("action.reset");
-    m.total_time = 0;
-    ++m.reset_count;
-}
-
-void tick_internal_action::operator()(TestMachine& m, const EvTick& e) const {
-    m.trace.push("internal.tick_action");
-    m.handle_tick(e);
-}
-
-// ===================== TESTS =====================
-
-TEST(FsmRuntime, InitiateRunsDefaultChain)
+static int CountLine(const std::vector<std::string>& tr,
+                     const std::string& line)
 {
-    TestMachine sm;
-    sm.initiate();
+    return static_cast<int>(std::count(tr.begin(), tr.end(), line));
+}
 
-    ASSERT_TRUE(sm.is_in_state<Idle>());
+static bool ContainsLine(const std::vector<std::string>& tr,
+                         const std::string& line)
+{
+    return std::find(tr.begin(), tr.end(), line) != tr.end();
+}
 
-    const std::vector<std::string> expected = {
-        "Boot.entry",
-        "Boot.exit",
-        "default.Boot->Idle",
-        "Idle.entry"
+// ------------------------------------------------------------
+// Tests
+// ------------------------------------------------------------
+
+TEST(EAManagerRuntime, InitiateSequence_StrictTrace)
+{
+    EAManager m;
+    m.initiate();
+
+    ASSERT_TRUE(m.is_in_state<stStartUp>());
+
+    const std::vector<std::string> expected =
+    {
+        "stIdle::on_entry\n",
+        "stIdle::on_exit\n",
+        "stOperational::on_entry\n",
+        "stStartUp::on_entry\n"
     };
-    EXPECT_EQ(sm.trace.log, expected);
+
+    ExpectTraceEq(m.GetTrace(), expected);
 }
 
-TEST(FsmRuntime, UnhandledEventIsIgnored)
+TEST(EAManagerRuntime, Activate_TransitionsToWaiting_StrictTrace)
 {
-    TestMachine sm;
-    sm.initiate();
-    sm.trace.log.clear();
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
 
-    sm.process_event(EvNop{});
-    EXPECT_TRUE(sm.is_in_state<Idle>());
-    EXPECT_TRUE(sm.trace.log.empty());
-}
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-TEST(FsmRuntime, ExternalGuardFailIgnoresEvent)
-{
-    TestMachine sm;
-    sm.initiate();
-    sm.trace.log.clear();
+    const std::vector<std::string> expected =
+    {
+        "stIdle::on_entry\n",
+        "stIdle::on_exit\n",
+        "stOperational::on_entry\n",
+        "stStartUp::on_entry\n",
 
-    // power_on=false by default
-    sm.process_event(EvStart{});
-
-    EXPECT_TRUE(sm.is_in_state<Idle>());
-    EXPECT_EQ(sm.trace.log, (std::vector<std::string>{"guard.power_on"}));
-}
-
-TEST(FsmRuntime, ExternalTransitionThenDefaultChain)
-{
-    TestMachine sm;
-    sm.initiate();
-    sm.trace.log.clear();
-
-    sm.power_on = true;
-    sm.process_event(EvStart{});
-
-    ASSERT_TRUE(sm.is_in_state<Running>());
-
-    const std::vector<std::string> expected = {
-        "guard.power_on",
-        "Idle.exit",
-        "action.start",
-        "Starting.entry",
-        "Starting.exit",
-        "default.Starting->Running",
-        "Running.entry"
+        "stStartUp::on_exit\n",
+        "EAManager::ActivateSystem\n",
+        "stActive::on_entry\n",
+        "stWaiting::on_entry\n"
     };
-    EXPECT_EQ(sm.trace.log, expected);
+
+    ExpectTraceEq(m.GetTrace(), expected);
 }
 
-TEST(FsmRuntime, InternalTransitionNoExitEntryNoStateChange)
+TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
 {
-    TestMachine sm;
-    sm.initiate();
+    EAManager m;
+    m.initiate();
+    m.process_event(evTick{5});
 
-    // Move to Running via EvStart
-    sm.power_on = true;
-    sm.process_event(EvStart{});
-    ASSERT_TRUE(sm.is_in_state<Running>());
+    ASSERT_TRUE(m.is_in_state<stStartUp>());
 
-    sm.trace.log.clear();
-    sm.process_event(EvTick{5});
+    const auto& tr = m.GetTrace();
 
-    EXPECT_TRUE(sm.is_in_state<Running>());
+    EXPECT_TRUE(ContainsLine(tr,
+        "EAManager::AddTick -> m_iTickCounter: 5\n"));
 
-    // No Running.exit / Running.entry
-    const std::vector<std::string> expected = {
-        "internal.tick_action",
-        "machine.handle_tick"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
+    EXPECT_FALSE(ContainsLine(tr, "stStartUp::on_exit\n"));
 }
 
-TEST(FsmRuntime, ExternalSelfTransitionDoesExitEntry)
+TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
 {
-    TestMachine sm;
-    sm.initiate();
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-    sm.power_on = true;
-    sm.process_event(EvStart{});
-    ASSERT_TRUE(sm.is_in_state<Running>());
+    m.process_event(evStartScanning{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-    sm.trace.log.clear();
-    sm.process_event(EvReset{});
+    m.process_event(evStartAttacking{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-    EXPECT_TRUE(sm.is_in_state<Running>());
+    const auto& tr = m.GetTrace();
 
-    const std::vector<std::string> expected = {
-        "Running.exit",
-        "action.reset",
-        "Running.entry"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
+    EXPECT_EQ(CountLine(tr,
+        "EAManager::IsScanning -> 1\n"), 1);
+
+    EXPECT_FALSE(ContainsLine(tr, "stWaiting::on_exit\n"));
+    EXPECT_FALSE(ContainsLine(tr, "stAttacking::on_entry\n"));
+    EXPECT_FALSE(ContainsLine(tr, "EAManager::StartAttacking\n"));
 }
 
-TEST(FsmRuntime, StopGuardFailThenPass)
+TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
 {
-    TestMachine sm;
-    sm.initiate();
-    sm.power_on = true;
-    sm.process_event(EvStart{});
-    ASSERT_TRUE(sm.is_in_state<Running>());
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-    // total_time=0 => guard fail
-    sm.trace.log.clear();
-    sm.process_event(EvStop{});
-    EXPECT_TRUE(sm.is_in_state<Running>());
-    EXPECT_EQ(sm.trace.log, (std::vector<std::string>{"guard.min_time"}));
+    m.process_event(evStartScanning{});
+    m.process_event(evStopScanning{});
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-    // now tick enough
-    sm.process_event(EvTick{10});
+    m.process_event(evStartAttacking{});
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
 
-    sm.trace.log.clear();
-    sm.process_event(EvStop{});
+    const auto& tr = m.GetTrace();
 
-    // Running -> Stopped -> (default) Idle
-    ASSERT_TRUE(sm.is_in_state<Idle>());
-    const std::vector<std::string> expected = {
-        "guard.min_time",
-        "Running.exit",
-        "action.stop",
-        "Stopped.entry",
-        "Stopped.exit",
-        "default.Stopped->Idle",
-        "Idle.entry"
-    };
-    EXPECT_EQ(sm.trace.log, expected);
+    EXPECT_EQ(CountLine(tr,
+        "EAManager::IsScanning -> 0\n"), 1);
+
+    EXPECT_TRUE(ContainsLine(tr, "stWaiting::on_exit\n"));
+    EXPECT_TRUE(ContainsLine(tr, "stAttacking::on_entry\n"));
+    EXPECT_TRUE(ContainsLine(tr, "EAManager::StartAttacking\n"));
 }
 
-} // namespace
+TEST(EAManagerRuntime, PBITBlockedWhileAttacking)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    m.process_event(evStartAttacking{});
+
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+    m.process_event(evRequestBIT{BITType::PBIT});
+
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+    const auto& tr = m.GetTrace();
+
+    EXPECT_FALSE(ContainsLine(tr, "stBIT::on_entry\n"));
+
+    EXPECT_GE(CountLine(tr,
+        "EAManager::IsAttacking -> 1\n"), 1);
+}
+
+TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
+{
+    EAManager m;
+    m.initiate();
+    m.process_event(evActivate{});
+    m.process_event(evStartAttacking{});
+
+    ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+    m.process_event(evRequestBIT{BITType::IBIT});
+
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+    const auto& tr = m.GetTrace();
+
+    EXPECT_TRUE(ContainsLine(tr, "stBIT::on_entry\n"));
+    EXPECT_TRUE(ContainsLine(tr, "stBIT::on_exit\n"));
+
+    EXPECT_TRUE(ContainsLine(tr, "stAttacking::on_exit\n"));
+    EXPECT_TRUE(ContainsLine(tr, "EAManager::StopAttacking\n"));
+
+    EXPECT_TRUE(ContainsLine(tr,
+        "EAManager::RequestBIT -> eBITType: 2\n"));
+}
+
+TEST(EAManagerRuntime, FullScenario_StrictTrace)
+{
+    EAManager m;
+    m.initiate();
+
+    m.process_event(evTick{5});
+    m.process_event(evActivate{});
+
+    m.process_event(evTick{5});
+
+    m.process_event(evStartScanning{});
+    m.process_event(evStartAttacking{});
+
+    m.process_event(evStopScanning{});
+    m.process_event(evStartAttacking{});
+
+    m.process_event(evRequestBIT{BITType::IBIT});
+
+    ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+    const std::vector<std::string> expected =
+    {
+        "stIdle::on_entry\n",
+        "stIdle::on_exit\n",
+        "stOperational::on_entry\n",
+        "stStartUp::on_entry\n",
+
+        "EAManager::AddTick -> m_iTickCounter: 5\n",
+
+        "stStartUp::on_exit\n",
+        "EAManager::ActivateSystem\n",
+        "stActive::on_entry\n",
+        "stWaiting::on_entry\n",
+
+        "EAManager::AddTick -> m_iTickCounter: 10\n",
+
+        "EAManager::StartScanning\n",
+        "EAManager::IsScanning -> 1\n",
+
+        "EAManager::StopScanning\n",
+        "EAManager::IsScanning -> 0\n",
+
+        "stWaiting::on_exit\n",
+        "stAttacking::on_entry\n",
+        "EAManager::StartAttacking\n",
+
+        "EAManager::IsAttacking -> 1\n",
+        "stAttacking::on_exit\n",
+        "EAManager::StopAttacking\n",
+        "stActive::on_exit\n",
+        "EAManager::RequestBIT -> eBITType: 2\n",
+        "stBIT::on_entry\n",
+        "stBIT::on_exit\n",
+        "stActive::on_entry\n",
+        "stWaiting::on_entry\n"
+    };
+
+    ExpectTraceEq(m.GetTrace(), expected);
+
+    EXPECT_EQ(CountLine(m.GetTrace(),
+        "EAManager::IsScanning -> 0\n"), 1);
+
+    EXPECT_EQ(CountLine(m.GetTrace(),
+        "EAManager::IsScanning -> 1\n"), 1);
+}

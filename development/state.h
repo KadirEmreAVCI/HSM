@@ -2,7 +2,7 @@
 #define STATE_H
 #include <type_traits>
 
-namespace fsm   
+namespace hsm   
 {
     template <typename Machine>
     struct state_tag {};
@@ -12,7 +12,8 @@ namespace fsm
     {
     public:
         explicit state(Machine& m) noexcept : machine_(&m) {}
-
+        virtual void on_entry() {}
+        virtual void on_exit() {}
     protected:
         Machine& machine() noexcept { return *machine_; }
         const Machine& machine() const noexcept { return *machine_; }
