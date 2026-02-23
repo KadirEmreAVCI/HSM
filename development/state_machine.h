@@ -9,6 +9,11 @@
 #include "state.h"
 #include "transition.h"
 
+#ifndef HSM_STATIC_ASSERT
+    #define HSM_STATIC_ASSERT(cond, msg_literal) \
+        static_assert((cond), "HSM: " msg_literal)
+#endif
+
 namespace hsm
 {
     // =========================================================================
@@ -509,44 +514,41 @@ namespace hsm
         using variant_type = std::variant<std::monostate, States...>;
         using table_type   = TransitionTable;
 
-        static_assert(transition_table_unique_src_event<table_type>::value,
-            "Duplicate (src,event) transitions detected (external or internal).");
+        HSM_STATIC_ASSERT(transition_table_unique_src_event<table_type>::value,
+            "[Table] Duplicate (src,event) transitions detected among event-driven transitions (external/internal).");
 
-        static_assert(validate_transition_table<derived_type, table_type>::value,
-            "Transition table has invalid guard/action signatures.\n"
+        HSM_STATIC_ASSERT((validate_transition_table<derived_type, table_type>::value),
+            "[Signature] Invalid guard/action signatures.\n"
             " - transition: guard(M&, Ev const&) -> bool, action(M&, Ev const&) -> void\n"
             " - internal_transition: action(M&, Ev const&) -> void\n"
             " - default_transition: action(M&) -> void");
 
-        static_assert(
-            validate_transition_table_destinations<variant_type, table_type>::value,
-            "Transition table error: A transition destination state is not part of the machine state list.");
+        HSM_STATIC_ASSERT((validate_transition_table_destinations<variant_type, table_type>::value),
+            "[Table] Transition destination state is not part of the machine state list.");
 
-        static_assert((std::is_same_v<InitialState, States> || ...),
-            "InitialState must be in the machine state list.");
+        HSM_STATIC_ASSERT((std::is_same_v<InitialState, States> || ...),
+            "[Table] InitialState must be in the machine state list.");
 
-        static_assert((is_state_of_v<States, DerivedMachine> && ...),
-            "All states must derive from hsm::state<DerivedState, Machine>.");
+        HSM_STATIC_ASSERT((is_state_of_v<States, DerivedMachine> && ...),
+            "[Table] All states must derive from hsm::state<DerivedState, Machine>.");
 
-        static_assert((std::is_constructible_v<States, DerivedMachine&> && ...),
-            "All states must be constructible from (Machine&). Use using state::state;");
+        HSM_STATIC_ASSERT((std::is_constructible_v<States, DerivedMachine&> && ...),
+            "[Table] All states must be constructible from (Machine&). Tip: `using state::state;`");
 
-        static_assert((parent_initial_ok<States, table_type, States...>::value && ...),
-            "HSM rule violated: every parent must have exactly one default_transition<Parent, Child> "
+        HSM_STATIC_ASSERT((parent_initial_ok<States, table_type, States...>::value && ...),
+            "[Hierarchy] Each parent must have exactly one default_transition<Parent, Child>, "
             "and Child must be a direct child (parent_of<Child> == Parent).");
 
-        static_assert(validate_default_direct_child<table_type>::value,
-            "HSM rule violated: default_transition<Parent, Child> must target a DIRECT child "
-            "(parent_of<Child> == Parent). Default transitions cannot be same-level.");
+        HSM_STATIC_ASSERT(validate_default_direct_child<table_type>::value,
+            "[Hierarchy] default_transition<Parent, Child> must target a direct child (parent_of<Child> == Parent).");
 
-        static_assert(validate_external_same_parent<table_type>::value,
-            "HSM rule violated: external transitions require the same direct parent "
-            "(parent_of<Src> must equal parent_of<Dst>).");
+        HSM_STATIC_ASSERT(validate_external_same_parent<table_type>::value,
+            "[Hierarchy] external transitions require the same direct parent: parent_of<Src> == parent_of<Dst>.");
 
-        static_assert((unconditional_external_exclusive<States, table_type>::value && ...),
-            "Unconditional external transition rule violated:\n"
+        HSM_STATIC_ASSERT((unconditional_external_exclusive<States, table_type>::value && ...),
+            "[Unconditional] Unconditional external transition rule violated.\n"
             " - At most one unconditional external transition per state (ev = hsm::no_event)\n"
-            " - If present, it must be the ONLY outgoing transition from that state "
+            " - If present, it must be the only outgoing transition from that state "
             "(no default, no internal, no other external).");
 
         void initiate()
