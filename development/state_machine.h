@@ -757,9 +757,8 @@ namespace hsm
             {
                 using Child = typename find_child_on_path_list<Ancestor, Dest, AllStates...>::type;
 
-                static_assert(!std::is_same<Child, void>::value,
-                    "HSM rule violated: "
-                    "Hierarchy path error: cannot find child on path.");
+                HSM_STATIC_ASSERT(!std::is_same<Child, void>::value,
+                    "[Hierarchy] Path error: cannot find child on path.");
 
                 if constexpr (!std::is_same<Child, Dest>::value)
                     invoke_entry_for_state_type<Child>();
@@ -837,11 +836,8 @@ namespace hsm
         {
             if constexpr (is_default_transition<T0>::value && std::is_same<typename T0::src, CurState>::value)
             {
-                // IMPORTANT: no maybe_call_on_exit(curObj) here (HSM initial-substate behavior)
-
-                static_assert(std::is_invocable<typename T0::act, derived_type&>::value,
-                    "HSM rule violated:"
-                    "Default transition action must be callable as act(Machine&).");
+                HSM_STATIC_ASSERT(std::is_invocable<typename T0::act, derived_type&>::value,
+                    "[Signature] Default transition action must be callable as act(Machine&).");
 
                 typename T0::act{}(derived());
 
@@ -897,8 +893,8 @@ namespace hsm
                 // External semantics: exit -> action(M&, no_event const&) -> enter
                 curObj.on_exit();
 
-                static_assert(std::is_invocable_v<typename T0::act, derived_type&, const no_event&>,
-                    "Unconditional external transition action must be callable as: act(Machine&, no_event const&).");
+                HSM_STATIC_ASSERT(std::is_invocable_v<typename T0::act, derived_type&, const no_event&>,
+                    "[Signature] Unconditional external transition action must be callable as: act(Machine&, no_event const&).");
 
                 typename T0::act{}(derived(), no_event{});
 
