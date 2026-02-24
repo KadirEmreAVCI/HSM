@@ -27,17 +27,22 @@ jobs:
           Write-Host "Updated PATH: $env:PATH"
 
       - name: Run cppcheck (development folder)
-        shell: cmd
+        shell: pwsh
         run: |
-          if not exist reports mkdir reports
-          "%ProgramFiles%\Cppcheck\cppcheck.exe" ^
-            --enable=all ^
-            --inconclusive ^
-            --std=c++17 ^
-            --suppress=missingInclude ^
-            --suppress=missingIncludeSystem ^
-            --output-file=reports\cppcheck-report.txt ^
-            development
+          New-Item -ItemType Directory -Path reports -Force | Out-Null
+          $sourcePath = Join-Path $PWD "development"
+          if (-not (Test-Path $sourcePath)) {
+            throw "Path not found: $sourcePath"
+          }
+
+          & "$env:ProgramFiles\Cppcheck\cppcheck.exe" `
+            --enable=all `
+            --inconclusive `
+            --std=c++17 `
+            --suppress=missingInclude `
+            --suppress=missingIncludeSystem `
+            --output-file=reports\cppcheck-report.txt `
+            "$sourcePath"
 
       - name: Display cppcheck report
         shell: pwsh
