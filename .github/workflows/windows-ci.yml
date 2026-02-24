@@ -20,22 +20,31 @@ jobs:
 
       - name: Install cppcheck
         shell: pwsh
-        run: |
-          choco install cppcheck -y
-          $cppcheckPath = "C:\Program Files\Cppcheck"
-          $env:PATH += ";$cppcheckPath"
-          Write-Host "Updated PATH: $env:PATH"
+        run: choco install cppcheck -y
 
       - name: Run cppcheck (development folder)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path reports -Force | Out-Null
-          $sourcePath = Join-Path $PWD "development"
+
+          $sourcePath = Join-Path $PWD.Path "development"
           if (-not (Test-Path $sourcePath)) {
             throw "Path not found: $sourcePath"
           }
 
-          & "$env:ProgramFiles\Cppcheck\cppcheck.exe" `
+          $cppcheckExe = Join-Path $env:ProgramFiles "Cppcheck\cppcheck.exe"
+          if (-not (Test-Path $cppcheckExe)) {
+            $cmd = Get-Command cppcheck -ErrorAction SilentlyContinue
+            if ($cmd) {
+              $cppcheckExe = $cmd.Source
+            }
+          }
+
+          if (-not (Test-Path $cppcheckExe)) {
+            throw "cppcheck executable not found in Program Files or PATH"
+          }
+
+          & "$cppcheckExe" `
             --enable=all `
             --inconclusive `
             --std=c++17 `
