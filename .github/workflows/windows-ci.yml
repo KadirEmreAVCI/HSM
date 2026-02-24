@@ -27,10 +27,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path reports -Force | Out-Null
 
-          $sourcePath = Join-Path $PWD.Path "development"
-          if (-not (Test-Path $sourcePath)) {
-            throw "Path not found: $sourcePath"
-          }
+          Set-Location $env:GITHUB_WORKSPACE
+          $sourcePath = (Resolve-Path -LiteralPath "development").Path
 
           $cppcheckExe = Join-Path $env:ProgramFiles "Cppcheck\cppcheck.exe"
           if (-not (Test-Path $cppcheckExe)) {
@@ -44,14 +42,17 @@ jobs:
             throw "cppcheck executable not found in Program Files or PATH"
           }
 
-          & "$cppcheckExe" `
-            --enable=all `
-            --inconclusive `
-            --std=c++17 `
-            --suppress=missingInclude `
-            --suppress=missingIncludeSystem `
-            --output-file=reports\cppcheck-report.txt `
-            "$sourcePath"
+          $args = @(
+            "--enable=all",
+            "--inconclusive",
+            "--std=c++17",
+            "--suppress=missingInclude",
+            "--suppress=missingIncludeSystem",
+            "--output-file=reports\cppcheck-report.txt",
+            $sourcePath
+          )
+
+          & $cppcheckExe @args
 
       - name: Display cppcheck report
         shell: pwsh
