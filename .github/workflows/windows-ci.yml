@@ -19,26 +19,37 @@ jobs:
           submodules: recursive
 
       - name: Install cppcheck
-        run: choco install cppcheck -y
-
-      - name: Static analysis (development folder)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path reports -Force | Out-Null
+          choco install cppcheck -y
+          $cppcheckPath = "C:\Program Files\Cppcheck"
+          $env:PATH += ";$cppcheckPath"
+          Write-Host "Updated PATH: $env:PATH"
 
-          $stdCfg = Get-ChildItem -Path "C:\ProgramData\chocolatey" -Filter "std.cfg" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $stdCfg) {
-            throw "cppcheck std.cfg not found under C:\ProgramData\chocolatey"
-          }
+      - name: Run cppcheck (development folder)
+        shell: cmd
+        run: |
+          if not exist reports mkdir reports
+          "%ProgramFiles%\Cppcheck\cppcheck.exe" ^
+            --enable=all ^
+            --inconclusive ^
+            --std=c++17 ^
+            --suppress=missingInclude ^
+            --suppress=missingIncludeSystem ^
+            --output-file=reports\cppcheck-report.txt ^
+            development
 
-          $cfgDir = $stdCfg.Directory.FullName
-          cppcheck --data-dir="$cfgDir" --enable=all --inconclusive --xml --xml-version=2 development 2> reports/cppcheck-report.xml
+      - name: Display cppcheck report
+        shell: pwsh
+        run: |
+          Write-Host "==== Cppcheck output ===="
+          Get-Content reports/cppcheck-report.txt
 
       - name: Upload static analysis report
         uses: actions/upload-artifact@v4
         with:
           name: static-analysis-report
-          path: reports/cppcheck-report.xml
+          path: reports/cppcheck-report.txt
 
   build-and-test:
     runs-on: windows-latest
