@@ -6,6 +6,11 @@
 #include <variant>
 #include <cstddef>
 
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+
+
 #include "state.h"
 #include "transition.h"
 
@@ -504,7 +509,136 @@ namespace hsm
     // state_machine
     // ============================================================
 
-    template <typename DerivedMachine, typename InitialState, typename StatesVariant, typename TransitionTable>
+    
+    // =========================================================================
+    // Event queue: event_variant is built from all event-driven transitions
+    // (external + internal), excluding default transitions and no_event transitions.
+    // =========================================================================
+
+    template <typename... Ts>
+    struct type_list {};
+
+    template <typename List, typename T>
+    struct type_list_contains;
+
+    template <typename T>
+    struct type_list_contains<type_list<>, T> : std::false_type {};
+
+    template <typename T0, typename... Ts, typename T>
+    struct type_list_contains<type_list<T0, Ts...>, T>
+        : std::conditional_t<std::is_same_v<T0, T>, std::true_type, type_list_contains<type_list<Ts...>, T>> {};
+
+    template <typename List, typename T>
+    struct type_list_push_unique;
+
+    template <typename... Ts, typename T>
+    struct type_list_push_unique<type_list<Ts...>, T>
+    {
+        using type = std::conditional_t<
+            type_list_contains<type_list<Ts...>, T>::value,
+            type_list<Ts...>,
+            type_list<Ts..., T>
+        >;
+    };
+
+    template <typename List1, typename List2>
+    struct type_list_concat_unique;
+
+    template <typename... Ts>
+    struct type_list_concat_unique<type_list<Ts...>, type_list<>> { using type = type_list<Ts...>; };
+
+    template <typename... Ts, typename U0, typename... Us>
+    struct type_list_concat_unique<type_list<Ts...>, type_list<U0, Us...>>
+    {
+        using pushed = typename type_list_push_unique<type_list<Ts...>, U0>::type;
+        using type   = typename type_list_concat_unique<pushed, type_list<Us...>>::type;
+    };
+
+    // // 1) SFINAE detector stays (or replace with your SFINAE-safe has_event<Row>)
+    // template <typename T, typename = void>
+    // struct has_ev_type : std::false_type {};
+
+    // template <typename T>
+    // struct has_ev_type<T, std::void_t<typename T::ev>> : std::true_type {};
+
+    // 2) Safe implementation: never touches T::ev unless HasEv == true
+    template <typename T, bool HasEv = has_event<T>::value>
+    struct is_queueable_event_row_impl : std::false_type {};
+
+    // Specialization only when T::ev exists
+    template <typename T>
+    struct is_queueable_event_row_impl<T, true>
+        : std::bool_constant<
+            !is_default_transition<T>::value &&                 // exclude default transitions
+            !std::is_same_v<typename T::ev, no_event>           // exclude no_event transitions
+        >
+    {};
+
+    // Public name you use elsewhere
+    template <typename T>
+    struct is_queueable_event_row : is_queueable_event_row_impl<T> {};
+
+    template <typename Table>
+    struct collect_event_types;
+
+    template <typename... Rows>
+    struct collect_event_types<transition_table<Rows...>>
+    {
+    private:
+        template <typename Row, typename = void>
+        struct row_events
+        {
+            using type = type_list<>;
+        };
+
+        // Only participates if Row::ev exists
+        template <typename Row>
+        struct row_events<Row, std::void_t<typename Row::ev>>
+        {
+        private:
+            static constexpr bool ok =
+                !is_default_transition<Row>::value &&
+                !std::is_same_v<typename Row::ev, no_event>;
+
+        public:
+            using type = std::conditional_t<ok, type_list<typename Row::ev>, type_list<>>;
+        };
+
+        template <typename... Rs>
+        struct fold;
+
+        template <>
+        struct fold<> { using type = type_list<>; };
+
+        template <typename R0, typename... Rs>
+        struct fold<R0, Rs...>
+        {
+            using head = typename row_events<R0>::type;
+            using tail = typename fold<Rs...>::type;
+            using type = typename type_list_concat_unique<head, tail>::type;
+        };
+
+    public:
+        using type = typename fold<Rows...>::type;
+    };
+
+    template <typename List>
+    struct make_event_variant;
+
+    template <typename... Es>
+    struct make_event_variant<type_list<Es...>>
+    {
+        // Always include monostate so the variant is never empty.
+        using type = std::variant<std::monostate, Es...>;
+    };
+
+    template <typename Variant, typename T>
+    struct variant_contains;
+
+    template <typename T, typename... Ts>
+    struct variant_contains<std::variant<Ts...>, T> : type_list_contains<type_list<Ts...>, T> {};
+
+template <typename DerivedMachine, typename InitialState, typename StatesVariant, typename TransitionTable>
     class state_machine;
 
     template <typename DerivedMachine, typename InitialState, typename... States, typename TransitionTable>
@@ -513,7 +647,10 @@ namespace hsm
         using derived_type = DerivedMachine;
         using variant_type = std::variant<std::monostate, States...>;
         using table_type   = TransitionTable;
+        using event_list  = typename collect_event_types<table_type>::type;
+        using event_variant = typename make_event_variant<event_list>::type;
 
+        
         HSM_STATIC_ASSERT(transition_table_unique_src_event<table_type>::value,
             "[Table] Duplicate (src,event) transitions detected among event-driven transitions (external/internal).");
 
@@ -561,8 +698,111 @@ namespace hsm
             run_unconditional_transition_chain();
         }
 
+        // ---------------------------------------------------------------------
+        // Event queue public API (multi-producer, single-consumer)
+        // ---------------------------------------------------------------------
+
+        static constexpr std::size_t MAX_QUEUE_SIZE = 1000;
+
         template <typename Event>
-        void process_event(const Event& ev)
+        bool GEN(const Event& ev)
+        {
+            HSM_STATIC_ASSERT((variant_contains<event_variant, std::decay_t<Event>>::value),
+                "GEN() called with an event type not present in the transition table."
+            );
+
+            return enqueue_event(event_variant{ev});
+        }
+
+        template <typename Event>
+        bool GEN(Event&& ev)
+        {
+            using E = std::decay_t<Event>;
+
+            HSM_STATIC_ASSERT((variant_contains<event_variant, E>::value),
+                "GEN() called with an event type not present in the transition table."
+            );
+
+            return enqueue_event(event_variant{std::forward<Event>(ev)});
+        }
+
+        // Consumer loop. Run this on exactly one thread.
+        // Drains remaining events after stop() before returning.
+        void run()
+        {
+            for (;;)
+            {
+                event_variant ev;
+
+                {
+                    std::unique_lock<std::mutex> lock(queue_mtx_);
+                    queue_cv_.wait(lock, [this]{
+                        return stop_requested_ || !queue_.empty();
+                    });
+
+                    if (queue_.empty())
+                    {
+                        // stop requested and nothing to do
+                        break;
+                    }
+
+                    ev = std::move(queue_.front());
+                    queue_.pop();
+                }
+
+                // Never execute user code under the queue lock.
+                process_event(ev);
+            }
+        }
+
+        void stop()
+        {
+            {
+                std::lock_guard<std::mutex> lock(queue_mtx_);
+                stop_requested_ = true;
+            }
+            queue_cv_.notify_all();
+        }
+
+        template <typename StateT>
+        bool is_in_state() const
+        {
+            return std::holds_alternative<StateT>(current_);
+        }
+
+    protected:
+        derived_type& derived(){ return static_cast<derived_type&>(*this); }
+
+        const derived_type& derived() const{ return static_cast<const derived_type&>(*this); }
+
+    
+    private:
+        bool enqueue_event(event_variant&& ev)
+        {
+            {
+                std::lock_guard<std::mutex> lock(queue_mtx_);
+                if (stop_requested_) return false;
+                if (queue_.size() >= MAX_QUEUE_SIZE) return false;
+                queue_.push(std::move(ev));
+            }
+            queue_cv_.notify_one();
+            return true;
+        }
+
+        void process_event(event_variant& ev)
+        {
+            std::visit([this](auto& e)
+            {
+                using E = std::decay_t<decltype(e)>;
+                if constexpr (!std::is_same_v<E, std::monostate>)
+                {
+                    process_event_impl<E>(e);
+                }
+            }, ev);
+        }
+
+        template <typename Event>
+        void process_event_impl(const Event& ev)
         {
             if (!initiated_) return;
 
@@ -579,21 +819,8 @@ namespace hsm
             }
         }
 
-        template <typename Event>
-        void process_event() { process_event(Event{}); }
 
-        template <typename StateT>
-        bool is_in_state() const
-        {
-            return std::holds_alternative<StateT>(current_);
-        }
-
-    protected:
-        derived_type& derived(){ return static_cast<derived_type&>(*this); }
-
-        const derived_type& derived() const{ return static_cast<const derived_type&>(*this); }
-
-    private:
+private:
         void enter_current_state()
         {
             std::visit([](auto& st) {
@@ -757,7 +984,7 @@ namespace hsm
             {
                 using Child = typename find_child_on_path_list<Ancestor, Dest, AllStates...>::type;
 
-                HSM_STATIC_ASSERT(!std::is_same<Child, void>::value,
+                HSM_STATIC_ASSERT((!std::is_same<Child, void>::value),
                     "[Hierarchy] Path error: cannot find child on path.");
 
                 if constexpr (!std::is_same<Child, Dest>::value)
@@ -836,7 +1063,7 @@ namespace hsm
         {
             if constexpr (is_default_transition<T0>::value && std::is_same<typename T0::src, CurState>::value)
             {
-                HSM_STATIC_ASSERT(std::is_invocable<typename T0::act, derived_type&>::value,
+                HSM_STATIC_ASSERT((std::is_invocable<typename T0::act, derived_type&>::value),
                     "[Signature] Default transition action must be callable as act(Machine&).");
 
                 typename T0::act{}(derived());
@@ -893,7 +1120,7 @@ namespace hsm
                 // External semantics: exit -> action(M&, no_event const&) -> enter
                 curObj.on_exit();
 
-                HSM_STATIC_ASSERT(std::is_invocable_v<typename T0::act, derived_type&, const no_event&>,
+                HSM_STATIC_ASSERT((std::is_invocable_v<typename T0::act, derived_type&, const no_event&>),
                     "[Signature] Unconditional external transition action must be callable as: act(Machine&, no_event const&).");
 
                 typename T0::act{}(derived(), no_event{});
@@ -909,8 +1136,16 @@ namespace hsm
         }
     
     private:
+        // Current active leaf state
         variant_type current_{std::monostate{}};
         bool initiated_{false};
+
+        // Event queue state (MPSC -> single consumer)
+        std::queue<event_variant> queue_{};
+        mutable std::mutex queue_mtx_{};
+        std::condition_variable queue_cv_{};
+        bool stop_requested_{false};
+
     }; // class state_machine
 
 } // namespace hsm
