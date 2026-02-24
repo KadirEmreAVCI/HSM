@@ -67,34 +67,6 @@ static bool Post(EAManager& m, Ev&& ev)
     return m.GEN(std::forward<Ev>(ev));
 }
 
-struct Runner
-{
-    explicit Runner(EAManager& m) : m_(m), th_([&] { m_.run(); }) {}
-
-    void Stop()
-    {
-        m_.stop();
-    }
-
-    void Join()
-    {
-        if (th_.joinable()) th_.join();
-    }
-
-    ~Runner()
-    {
-        Stop();
-        Join();
-    }
-
-    Runner(const Runner&) = delete;
-    Runner& operator=(const Runner&) = delete;
-
-private:
-    EAManager& m_;
-    std::thread th_;
-};
-
 // ------------------------------------------------------------
 // Tests
 // ------------------------------------------------------------
@@ -120,17 +92,16 @@ TEST(EAManagerRuntime, InitiateSequence_StrictTrace)
 TEST(EAManagerRuntime, Activate_TransitionsToWaiting_StrictTrace)
 {
     EAManager m;
-    m.initiate();
+    ASSERT_TRUE(m.start());
 
     {
-        Runner r(m);
         ASSERT_TRUE(Post(m, evActivate{}));
 
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
         ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-        // Stop and join BEFORE inspecting trace to avoid data races
-        r.Stop();
+        // Stop worker BEFORE inspecting trace to avoid data races
+        m.stop();
     }
 
     const std::vector<std::string> expected =
@@ -152,17 +123,15 @@ TEST(EAManagerRuntime, Activate_TransitionsToWaiting_StrictTrace)
 TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
 {
     EAManager m;
-    m.initiate();
+    ASSERT_TRUE(m.start());
 
     {
-        Runner r(m);
-
         ASSERT_TRUE(Post(m, evTick{5}));
 
         // No trace polling (unsafe). Just allow a short window for processing.
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-        r.Stop();
+        m.stop();
     }
 
     ASSERT_TRUE(m.is_in_state<stStartUp>());
@@ -190,11 +159,9 @@ TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
 TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
 {
     EAManager m;
-    m.initiate();
+    ASSERT_TRUE(m.start());
 
     {
-        Runner r(m);
-
         ASSERT_TRUE(Post(m, evActivate{}));
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
         ASSERT_TRUE(m.is_in_state<stWaiting>());
@@ -211,7 +178,7 @@ TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
 
         ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-        r.Stop();
+        m.stop();
     }
 
     const auto& tr = m.GetTrace();
@@ -257,11 +224,9 @@ TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
 TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
 {
     EAManager m;
-    m.initiate();
+    ASSERT_TRUE(m.start());
 
     {
-        Runner r(m);
-
         ASSERT_TRUE(Post(m, evActivate{}));
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
         ASSERT_TRUE(m.is_in_state<stWaiting>());
@@ -275,7 +240,7 @@ TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
         ASSERT_TRUE(m.is_in_state<stAttacking>());
 
-        r.Stop();
+        m.stop();
     }
 
     const auto& tr = m.GetTrace();
@@ -320,11 +285,9 @@ TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
 TEST(EAManagerRuntime, PBITBlockedWhileAttacking)
 {
     EAManager m;
-    m.initiate();
+    ASSERT_TRUE(m.start());
 
     {
-        Runner r(m);
-
         ASSERT_TRUE(Post(m, evActivate{}));
         ASSERT_TRUE(Post(m, evStartAttacking{}));
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
@@ -336,7 +299,7 @@ TEST(EAManagerRuntime, PBITBlockedWhileAttacking)
 
         ASSERT_TRUE(m.is_in_state<stAttacking>());
 
-        r.Stop();
+        m.stop();
     }
 
     const auto& tr = m.GetTrace();
@@ -362,11 +325,9 @@ TEST(EAManagerRuntime, PBITBlockedWhileAttacking)
 TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
 {
     EAManager m;
-    m.initiate();
+    ASSERT_TRUE(m.start());
 
     {
-        Runner r(m);
-
         ASSERT_TRUE(Post(m, evActivate{}));
         ASSERT_TRUE(Post(m, evStartAttacking{}));
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
@@ -378,7 +339,7 @@ TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
         //   stActive --evRequestBIT(IBIT)--> stBIT --no_event--> stActive --default--> stWaiting
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
 
-        r.Stop();
+        m.stop();
     }
 
     ASSERT_TRUE(m.is_in_state<stWaiting>());
@@ -424,16 +385,38 @@ TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
     }
 }
 
+TEST(EAManagerRuntime, ActiveAttributes_AreExposed)
+{
+    EAManager m(false, "ea_worker", 7, 8192);
+
+    EXPECT_EQ(m.thread_name(), "ea_worker");
+    EXPECT_EQ(m.thread_priority(), 7);
+    EXPECT_EQ(m.thread_stack_size(), 8192u);
+
+    const auto& attrs = m.get_thread_attributes();
+    EXPECT_EQ(attrs.name, "ea_worker");
+    EXPECT_EQ(attrs.priority, 7);
+    EXPECT_EQ(attrs.stack_size, 8192u);
+}
+
+TEST(EAManagerRuntime, ActiveStartStopLifecycle)
+{
+    EAManager m;
+
+    ASSERT_TRUE(m.start());
+    ASSERT_FALSE(m.start());
+
+    m.stop();
+
+    ASSERT_FALSE(Post(m, evActivate{}));
+}
+
 TEST(EAManagerRuntime, StopFeature_StopsRunLoop)
 {
     EAManager m;
-    m.initiate();
+    ASSERT_TRUE(m.start());
 
-    std::thread th([&] { m.run(); });
-
-    // Ask it to stop immediately (no events)
+    // Ask active object to stop immediately (no events)
     m.stop();
-
-    if (th.joinable()) th.join();
     SUCCEED();
 }
