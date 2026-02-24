@@ -194,6 +194,11 @@ class EAManager :
     friend struct GuardEvRequestBIT;
 
 public:
+
+    ~EAManager()
+    {
+        stop();
+    }
     
     EAManager(bool blPrintTrace = false,
               std::string thread_name = "ea_manager",

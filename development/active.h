@@ -41,7 +41,10 @@ namespace hsm
 
         ~active()
         {
-            stop();
+            // NOTE:
+            // Do not stop worker from the base destructor. Derived teardown starts before
+            // base destructors run, so stopping here can race against partially destroyed
+            // derived state. Derived types should call stop() in their own destructor.
 #if HSM_HAS_PTHREAD
             (void)pthread_mutex_destroy(&worker_mtx_);
 #endif
@@ -121,35 +124,29 @@ namespace hsm
         void stop()
         {
 #if HSM_HAS_PTHREAD
-            bool do_join = false;
-            pthread_t worker_to_join{};
-
             (void)pthread_mutex_lock(&worker_mtx_);
-            if (running_)
+            if (!running_)
             {
-                worker_to_join = worker_;
-                do_join = true;
-                running_ = false;
+                (void)pthread_mutex_unlock(&worker_mtx_);
+                return;
             }
-            (void)pthread_mutex_unlock(&worker_mtx_);
 
-            if (!do_join) return;
-
+            const pthread_t worker_to_join = worker_;
             derived().request_stop();
             (void)pthread_join(worker_to_join, nullptr);
+            running_ = false;
+            (void)pthread_mutex_unlock(&worker_mtx_);
 #else
-            std::thread worker_to_join;
-            {
-                std::lock_guard<std::mutex> lock(worker_mtx_);
-                if (!running_) return;
-                derived().request_stop();
-                worker_to_join = std::move(worker_);
-                running_ = false;
-            }
+            std::unique_lock<std::mutex> lock(worker_mtx_);
+            if (!running_) return;
+
+            derived().request_stop();
+            std::thread worker_to_join = std::move(worker_);
             if (worker_to_join.joinable())
             {
                 worker_to_join.join();
             }
+            running_ = false;
 #endif
         }
 
