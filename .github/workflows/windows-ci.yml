@@ -18,8 +18,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install cppcheck
-        run: choco install cppcheck -y
+      - name: Setup cppcheck
+        uses: aminya/setup-cppcheck@v1
 
       - name: Static analysis (development folder)
         shell: pwsh
