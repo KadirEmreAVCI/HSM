@@ -9,62 +9,46 @@ on:
   workflow_dispatch:
 
 jobs:
-  static-analysis:
+  Analyze:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install cppcheck
-        shell: pwsh
-        run: choco install cppcheck -y
-
-      - name: Run cppcheck (development folder)
+      - name: Install Cppcheck
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path reports -Force | Out-Null
+          choco install cppcheck -y
+          $cppcheckPath = "C:\Program Files\Cppcheck"
+          $env:PATH += ";$cppcheckPath"
+          Write-Host "Updated PATH: $env:PATH"
 
-          Set-Location $env:GITHUB_WORKSPACE
-          $sourcePath = (Resolve-Path -LiteralPath "development").Path
+      - name: Run Cppcheck
+        shell: cmd
+        run: |
+            "%ProgramFiles%\Cppcheck\cppcheck.exe" ^
+              --enable=all ^
+              --inconclusive ^
+              --std=c++20 ^
+              --suppress=missingInclude ^
+              --suppress=missingIncludeSystem ^
+              --output-file=cppcheck-report.txt ^
+              development
 
-          $cppcheckExe = Join-Path $env:ProgramFiles "Cppcheck\cppcheck.exe"
-          if (-not (Test-Path $cppcheckExe)) {
-            $cmd = Get-Command cppcheck -ErrorAction SilentlyContinue
-            if ($cmd) {
-              $cppcheckExe = $cmd.Source
-            }
-          }
-
-          if (-not (Test-Path $cppcheckExe)) {
-            throw "cppcheck executable not found in Program Files or PATH"
-          }
-
-          $args = @(
-            "--enable=all",
-            "--inconclusive",
-            "--std=c++17",
-            "--suppress=missingInclude",
-            "--suppress=missingIncludeSystem",
-            "--output-file=reports\cppcheck-report.txt",
-            $sourcePath
-          )
-
-          & $cppcheckExe @args
-
-      - name: Display cppcheck report
+      - name: Display Report
         shell: pwsh
         run: |
           Write-Host "==== Cppcheck output ===="
-          Get-Content reports/cppcheck-report.txt
+          Get-Content cppcheck-report.txt
 
-      - name: Upload static analysis report
+      - name: Upload Cppcheck Report
         uses: actions/upload-artifact@v4
         with:
-          name: static-analysis-report
-          path: reports/cppcheck-report.txt
+          name: cppcheck-report
+          path: cppcheck-report.txt
 
   build-and-test:
     runs-on: windows-latest
