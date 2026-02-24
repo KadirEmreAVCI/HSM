@@ -18,14 +18,21 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup cppcheck
-        uses: aminya/setup-cppcheck@v1
+      - name: Install cppcheck
+        run: choco install cppcheck -y
 
       - name: Static analysis (development folder)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path reports -Force | Out-Null
-          cppcheck --enable=all --inconclusive --xml --xml-version=2 development 2> reports/cppcheck-report.xml
+
+          $stdCfg = Get-ChildItem -Path "C:\ProgramData\chocolatey" -Filter "std.cfg" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $stdCfg) {
+            throw "cppcheck std.cfg not found under C:\ProgramData\chocolatey"
+          }
+
+          $cfgDir = $stdCfg.Directory.FullName
+          cppcheck --data-dir="$cfgDir" --enable=all --inconclusive --xml --xml-version=2 development 2> reports/cppcheck-report.xml
 
       - name: Upload static analysis report
         uses: actions/upload-artifact@v4
