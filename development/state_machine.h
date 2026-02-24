@@ -755,7 +755,7 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
             }
         }
 
-        void stop()
+        void request_stop()
         {
             {
                 std::lock_guard<std::mutex> lock(queue_mtx_);
