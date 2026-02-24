@@ -385,6 +385,32 @@ TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
     }
 }
 
+TEST(EAManagerRuntime, ActiveAttributes_AreExposed)
+{
+    EAManager m(false, "ea_worker", 7, 8192);
+
+    EXPECT_EQ(m.thread_name(), "ea_worker");
+    EXPECT_EQ(m.thread_priority(), 7);
+    EXPECT_EQ(m.thread_stack_size(), 8192u);
+
+    const auto& attrs = m.get_thread_attributes();
+    EXPECT_EQ(attrs.name, "ea_worker");
+    EXPECT_EQ(attrs.priority, 7);
+    EXPECT_EQ(attrs.stack_size, 8192u);
+}
+
+TEST(EAManagerRuntime, ActiveStartStopLifecycle)
+{
+    EAManager m;
+
+    ASSERT_TRUE(m.start());
+    ASSERT_FALSE(m.start());
+
+    m.stop();
+
+    ASSERT_FALSE(Post(m, evActivate{}));
+}
+
 TEST(EAManagerRuntime, StopFeature_StopsRunLoop)
 {
     EAManager m;
