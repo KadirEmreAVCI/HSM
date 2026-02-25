@@ -578,48 +578,51 @@ namespace hsm
     template <typename T>
     struct is_queueable_event_row : is_queueable_event_row_impl<T> {};
 
+    template <typename Row, typename = void>
+    struct row_event_type
+    {
+        using type = type_list<>;
+    };
+
+    template <typename Row>
+    struct row_event_type<Row, std::void_t<typename Row::ev>>
+    {
+    private:
+        static constexpr bool ok =
+            !is_default_transition<Row>::value &&
+            !std::is_same_v<typename Row::ev, no_event>;
+
+    public:
+        using type = std::conditional_t<ok, type_list<typename Row::ev>, type_list<>>;
+    };
+
     template <typename Table>
-    struct collect_event_types;
+    struct collect_event_types
+    {
+        using type = typename row_event_type<Table>::type;
+    };
+
+    template <typename... Rs>
+    struct collect_event_types_fold;
+
+    template <>
+    struct collect_event_types_fold<>
+    {
+        using type = type_list<>;
+    };
+
+    template <typename R0, typename... Rs>
+    struct collect_event_types_fold<R0, Rs...>
+    {
+        using head = typename row_event_type<R0>::type;
+        using tail = typename collect_event_types_fold<Rs...>::type;
+        using type = typename type_list_concat_unique<head, tail>::type;
+    };
 
     template <typename... Rows>
     struct collect_event_types<transition_table<Rows...>>
     {
-    private:
-        template <typename Row, typename = void>
-        struct row_events
-        {
-            using type = type_list<>;
-        };
-
-        // Only participates if Row::ev exists
-        template <typename Row>
-        struct row_events<Row, std::void_t<typename Row::ev>>
-        {
-        private:
-            static constexpr bool ok =
-                !is_default_transition<Row>::value &&
-                !std::is_same_v<typename Row::ev, no_event>;
-
-        public:
-            using type = std::conditional_t<ok, type_list<typename Row::ev>, type_list<>>;
-        };
-
-        template <typename... Rs>
-        struct fold;
-
-        template <>
-        struct fold<> { using type = type_list<>; };
-
-        template <typename R0, typename... Rs>
-        struct fold<R0, Rs...>
-        {
-            using head = typename row_events<R0>::type;
-            using tail = typename fold<Rs...>::type;
-            using type = typename type_list_concat_unique<head, tail>::type;
-        };
-
-    public:
-        using type = typename fold<Rows...>::type;
+        using type = typename collect_event_types_fold<Rows...>::type;
     };
 
     template <typename List>
@@ -690,6 +693,7 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
 
         void initiate()
         {
+            std::lock_guard<std::recursive_mutex> lock(state_mtx_);
             current_.template emplace<InitialState>(derived());
             initiated_ = true;
 
@@ -767,6 +771,7 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
         template <typename StateT>
         bool is_in_state() const
         {
+            std::lock_guard<std::recursive_mutex> lock(state_mtx_);
             return std::holds_alternative<StateT>(current_);
         }
 
@@ -804,6 +809,7 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
         template <typename Event>
         void process_event_impl(const Event& ev)
         {
+            std::lock_guard<std::recursive_mutex> lock(state_mtx_);
             if (!initiated_) return;
 
             const bool handled = std::visit([this, &ev](auto& cur)
@@ -1139,6 +1145,7 @@ private:
         // Current active leaf state
         variant_type current_{std::monostate{}};
         bool initiated_{false};
+        mutable std::recursive_mutex state_mtx_{};
 
         // Event queue state (MPSC -> single consumer)
         std::queue<event_variant> queue_{};
