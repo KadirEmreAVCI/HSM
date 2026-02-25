@@ -5,6 +5,8 @@
 #include <vector>
 #include <variant>
 #include <iostream>
+#include <mutex>
+#include <thread>
 
 #include "state.h"
 #include "transition.h"
@@ -217,7 +219,41 @@ public:
         return trace;
     }
 
+    std::thread::id constructed_thread_id() const
+    {
+        return m_constructedThreadId;
+    }
+
+    std::thread::id worker_thread_id() const
+    {
+        std::lock_guard<std::mutex> lock(m_threadInfoMtx);
+        return m_workerThreadId;
+    }
+
+    std::thread::id last_consumed_event_thread_id() const
+    {
+        std::lock_guard<std::mutex> lock(m_threadInfoMtx);
+        return m_lastConsumedEventThreadId;
+    }
+
+    bool has_worker_thread_id() const
+    {
+        return worker_thread_id() != std::thread::id{};
+    }
+
 private:
+    void MarkWorkerThread()
+    {
+        std::lock_guard<std::mutex> lock(m_threadInfoMtx);
+        m_workerThreadId = std::this_thread::get_id();
+    }
+
+    void NoteEventConsumedThread() const
+    {
+        std::lock_guard<std::mutex> lock(m_threadInfoMtx);
+        m_lastConsumedEventThreadId = std::this_thread::get_id();
+    }
+
     void AddTrace(const std::string& s) const
     {
         if (m_blPrintTrace)
@@ -292,6 +328,10 @@ private:
     bool m_blScanning = false;
     bool m_blAttacking = false;
     int  m_iTickCounter = 0;
+    const std::thread::id m_constructedThreadId{std::this_thread::get_id()};
+    mutable std::mutex m_threadInfoMtx{};
+    std::thread::id m_workerThreadId{};
+    mutable std::thread::id m_lastConsumedEventThreadId{};
 
 private:
     mutable std::vector<std::string> trace;
@@ -301,7 +341,11 @@ private:
 // State Implementations
 // --------------------------------------------------
 
-inline void stIdle::on_entry()       { machine().AddTrace("stIdle::on_entry\n"); }
+inline void stIdle::on_entry()
+{
+    machine().MarkWorkerThread();
+    machine().AddTrace("stIdle::on_entry\n");
+}
 inline void stIdle::on_exit()        { machine().AddTrace("stIdle::on_exit\n"); }
 
 inline void stOperational::on_entry(){ machine().AddTrace("stOperational::on_entry\n"); }
@@ -337,26 +381,31 @@ inline void stBIT::on_exit()         { machine().AddTrace("stBIT::on_exit\n"); }
 
 inline void ActionEvTick::operator()(EAManager& m, const evTick& ev) const
 {
+    m.NoteEventConsumedThread();
     m.AddTick(ev.iTickValue);
 }
 
 inline void ActionEvActivate::operator()(EAManager& m, const evActivate&) const
 {
+    m.NoteEventConsumedThread();
     m.ActivateSystem();
 }
 
 inline void ActionEvStartScanning::operator()(EAManager& m, const evStartScanning&) const
 {
+    m.NoteEventConsumedThread();
     m.StartScanning();
 }
 
 inline void ActionEvStopScanning::operator()(EAManager& m, const evStopScanning&) const
 {
+    m.NoteEventConsumedThread();
     m.StopScanning();
 }
 
 inline void ActionEvRequestBIT::operator()(EAManager& m, const evRequestBIT& ev) const
 {
+    m.NoteEventConsumedThread();
     m.RequestBIT(ev.eBITType);
 }
 
@@ -366,11 +415,13 @@ inline void ActionEvRequestBIT::operator()(EAManager& m, const evRequestBIT& ev)
 
 inline bool GuardEvStartAttacking::operator()(const EAManager& m, const evStartAttacking&) const
 {
+    m.NoteEventConsumedThread();
     return !m.IsScanning();
 }
 
 inline bool GuardEvRequestBIT::operator()(const EAManager& m, const evRequestBIT& ev) const
 {
+    m.NoteEventConsumedThread();
     return !m.IsAttacking() || (ev.eBITType == BITType::IBIT);
 }
 
