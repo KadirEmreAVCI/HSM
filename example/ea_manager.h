@@ -9,6 +9,7 @@
 #include "state.h"
 #include "transition.h"
 #include "state_machine.h"
+#include "active.h"
 
 enum class BITType
 {
@@ -155,6 +156,7 @@ struct GuardEvRequestBIT
 // --------------------------------------------------
 
 class EAManager :
+    public hsm::active<EAManager>,
     public hsm::state_machine<
         EAManager,
         stIdle,
@@ -192,8 +194,19 @@ class EAManager :
     friend struct GuardEvRequestBIT;
 
 public:
+
+    ~EAManager()
+    {
+        stop();
+    }
     
-    EAManager(bool blPrintTrace = false) : m_blPrintTrace(blPrintTrace) {}
+    EAManager(bool blPrintTrace = false,
+              std::string thread_name = "ea_manager",
+              int thread_priority = 0,
+              std::size_t thread_stack_size = 0)
+        : hsm::active<EAManager>(std::move(thread_name), thread_priority, thread_stack_size)
+        , m_blPrintTrace(blPrintTrace)
+    {}
 
     // -------------------------
     // Trace

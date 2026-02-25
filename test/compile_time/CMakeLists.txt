@@ -39,3 +39,5 @@ add_compile_fail_test(default_plus_external_fail            default_plus_externa
 add_compile_fail_test(dst_not_in_variant_default            dst_not_in_variant_default.cpp)
 add_compile_fail_test(dst_not_in_variant_external           dst_not_in_variant_external.cpp)
 add_compile_fail_test(external_different_parents            external_different_parents.cpp)
+add_compile_fail_test(gen_event_not_in_table                gen_event_not_in_table.cpp)
+add_compile_fail_test(gen_no_event_not_queueable            gen_no_event_not_queueable.cpp)

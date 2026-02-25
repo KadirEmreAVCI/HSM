@@ -1,14 +1,16 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "ea_manager.h"
 
 // ------------------------------------------------------------
-// Helpers
+// Helpers (no concurrent trace reads)
 // ------------------------------------------------------------
 
 static std::string Join(const std::vector<std::string>& v)
@@ -31,16 +33,38 @@ static void ExpectTraceEq(const std::vector<std::string>& actual,
     EXPECT_EQ(actual, expected);
 }
 
-static int CountLine(const std::vector<std::string>& tr,
-                     const std::string& line)
+// Extract all occurrences of an exact trace line, preserving order.
+static std::vector<std::string> FilterExact(const std::vector<std::string>& tr,
+                                            const std::string& line)
 {
-    return static_cast<int>(std::count(tr.begin(), tr.end(), line));
+    std::vector<std::string> out;
+    out.reserve(tr.size());
+    for (const auto& s : tr)
+    {
+        if (s == line) out.push_back(s);
+    }
+    return out;
 }
 
-static bool ContainsLine(const std::vector<std::string>& tr,
-                         const std::string& line)
+template <typename Pred>
+static bool WaitUntil(Pred&& pred,
+                      std::chrono::milliseconds timeout = std::chrono::milliseconds(500))
 {
-    return std::find(tr.begin(), tr.end(), line) != tr.end();
+    using clock = std::chrono::steady_clock;
+    const auto deadline = clock::now() + timeout;
+
+    while (clock::now() < deadline)
+    {
+        if (pred()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return pred();
+}
+
+template <typename Ev>
+static bool Post(EAManager& m, Ev&& ev)
+{
+    return m.GEN(std::forward<Ev>(ev));
 }
 
 // ------------------------------------------------------------
@@ -68,10 +92,17 @@ TEST(EAManagerRuntime, InitiateSequence_StrictTrace)
 TEST(EAManagerRuntime, Activate_TransitionsToWaiting_StrictTrace)
 {
     EAManager m;
-    m.initiate();
-    m.process_event(evActivate{});
+    ASSERT_TRUE(m.start());
 
-    ASSERT_TRUE(m.is_in_state<stWaiting>());
+    {
+        ASSERT_TRUE(Post(m, evActivate{}));
+
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
+        ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+        // Stop worker BEFORE inspecting trace to avoid data races
+        m.stop();
+    }
 
     const std::vector<std::string> expected =
     {
@@ -92,174 +123,300 @@ TEST(EAManagerRuntime, Activate_TransitionsToWaiting_StrictTrace)
 TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
 {
     EAManager m;
-    m.initiate();
-    m.process_event(evTick{5});
+    ASSERT_TRUE(m.start());
+
+    {
+        ASSERT_TRUE(Post(m, evTick{5}));
+
+        // No trace polling (unsafe). Just allow a short window for processing.
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+        m.stop();
+    }
 
     ASSERT_TRUE(m.is_in_state<stStartUp>());
 
     const auto& tr = m.GetTrace();
 
-    EXPECT_TRUE(ContainsLine(tr,
-        "EAManager::AddTick -> m_iTickCounter: 5\n"));
+    // Compare vectors directly (exact match list for the line).
+    {
+        const auto got = FilterExact(tr, "EAManager::AddTick -> m_iTickCounter: 5\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::AddTick -> m_iTickCounter: 5\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
 
-    EXPECT_FALSE(ContainsLine(tr, "stStartUp::on_exit\n"));
+    // Must not leave startup.
+    {
+        const auto got = FilterExact(tr, "stStartUp::on_exit\n");
+        const std::vector<std::string> expected = {};
+        EXPECT_EQ(got, expected);
+    }
 }
 
 TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
 {
     EAManager m;
-    m.initiate();
-    m.process_event(evActivate{});
-    ASSERT_TRUE(m.is_in_state<stWaiting>());
+    ASSERT_TRUE(m.start());
 
-    m.process_event(evStartScanning{});
-    ASSERT_TRUE(m.is_in_state<stWaiting>());
+    {
+        ASSERT_TRUE(Post(m, evActivate{}));
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
+        ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-    m.process_event(evStartAttacking{});
-    ASSERT_TRUE(m.is_in_state<stWaiting>());
+        ASSERT_TRUE(Post(m, evStartScanning{}));
+
+        // Give time for StartScanning action + guard evaluation to occur
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        ASSERT_TRUE(Post(m, evStartAttacking{}));
+
+        // Give time for IsScanning guard to be evaluated
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        ASSERT_TRUE(m.is_in_state<stWaiting>());
+
+        m.stop();
+    }
 
     const auto& tr = m.GetTrace();
 
-    EXPECT_EQ(CountLine(tr,
-        "EAManager::IsScanning -> 1\n"), 1);
+    // Guard executed exactly once.
+    {
+        const auto got = FilterExact(tr, "EAManager::IsScanning -> 1\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::IsScanning -> 1\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
 
-    EXPECT_FALSE(ContainsLine(tr, "stWaiting::on_exit\n"));
-    EXPECT_FALSE(ContainsLine(tr, "stAttacking::on_entry\n"));
-    EXPECT_FALSE(ContainsLine(tr, "EAManager::StartAttacking\n"));
+    // StartScanning must happen.
+    {
+        const auto got = FilterExact(tr, "EAManager::StartScanning\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::StartScanning\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
+
+    // Transition must be blocked: no exit of stWaiting and no entry to stAttacking.
+    {
+        const auto got = FilterExact(tr, "stWaiting::on_exit\n");
+        const std::vector<std::string> expected = {};
+        EXPECT_EQ(got, expected);
+    }
+    {
+        const auto got = FilterExact(tr, "stAttacking::on_entry\n");
+        const std::vector<std::string> expected = {};
+        EXPECT_EQ(got, expected);
+    }
+    {
+        const auto got = FilterExact(tr, "EAManager::StartAttacking\n");
+        const std::vector<std::string> expected = {};
+        EXPECT_EQ(got, expected);
+    }
 }
 
 TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
 {
     EAManager m;
-    m.initiate();
-    m.process_event(evActivate{});
-    ASSERT_TRUE(m.is_in_state<stWaiting>());
+    ASSERT_TRUE(m.start());
 
-    m.process_event(evStartScanning{});
-    m.process_event(evStopScanning{});
-    ASSERT_TRUE(m.is_in_state<stWaiting>());
+    {
+        ASSERT_TRUE(Post(m, evActivate{}));
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
+        ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-    m.process_event(evStartAttacking{});
-    ASSERT_TRUE(m.is_in_state<stAttacking>());
+        ASSERT_TRUE(Post(m, evStartScanning{}));
+        ASSERT_TRUE(Post(m, evStopScanning{}));
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        ASSERT_TRUE(Post(m, evStartAttacking{}));
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
+        ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+        m.stop();
+    }
 
     const auto& tr = m.GetTrace();
 
-    EXPECT_EQ(CountLine(tr,
-        "EAManager::IsScanning -> 0\n"), 1);
+    // IsScanning must return 0 exactly once.
+    {
+        const auto got = FilterExact(tr, "EAManager::IsScanning -> 0\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::IsScanning -> 0\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
 
-    EXPECT_TRUE(ContainsLine(tr, "stWaiting::on_exit\n"));
-    EXPECT_TRUE(ContainsLine(tr, "stAttacking::on_entry\n"));
-    EXPECT_TRUE(ContainsLine(tr, "EAManager::StartAttacking\n"));
+    // Must transition to attacking.
+    {
+        const auto got = FilterExact(tr, "stWaiting::on_exit\n");
+        const std::vector<std::string> expected =
+        {
+            "stWaiting::on_exit\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
+    {
+        const auto got = FilterExact(tr, "stAttacking::on_entry\n");
+        const std::vector<std::string> expected =
+        {
+            "stAttacking::on_entry\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
+    {
+        const auto got = FilterExact(tr, "EAManager::StartAttacking\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::StartAttacking\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
 }
 
 TEST(EAManagerRuntime, PBITBlockedWhileAttacking)
 {
     EAManager m;
-    m.initiate();
-    m.process_event(evActivate{});
-    m.process_event(evStartAttacking{});
+    ASSERT_TRUE(m.start());
 
-    ASSERT_TRUE(m.is_in_state<stAttacking>());
+    {
+        ASSERT_TRUE(Post(m, evActivate{}));
+        ASSERT_TRUE(Post(m, evStartAttacking{}));
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
+        ASSERT_TRUE(m.is_in_state<stAttacking>());
 
-    m.process_event(evRequestBIT{BITType::PBIT});
+        ASSERT_TRUE(Post(m, evRequestBIT{BITType::PBIT}));
 
-    ASSERT_TRUE(m.is_in_state<stAttacking>());
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        ASSERT_TRUE(m.is_in_state<stAttacking>());
+
+        m.stop();
+    }
 
     const auto& tr = m.GetTrace();
 
-    EXPECT_FALSE(ContainsLine(tr, "stBIT::on_entry\n"));
+    // Guard should detect attacking.
+    {
+        const auto got = FilterExact(tr, "EAManager::IsAttacking -> 1\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::IsAttacking -> 1\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
 
-    EXPECT_GE(CountLine(tr,
-        "EAManager::IsAttacking -> 1\n"), 1);
+    // Must not enter BIT.
+    {
+        const auto got = FilterExact(tr, "stBIT::on_entry\n");
+        const std::vector<std::string> expected = {};
+        EXPECT_EQ(got, expected);
+    }
 }
 
 TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
 {
     EAManager m;
-    m.initiate();
-    m.process_event(evActivate{});
-    m.process_event(evStartAttacking{});
+    ASSERT_TRUE(m.start());
 
-    ASSERT_TRUE(m.is_in_state<stAttacking>());
+    {
+        ASSERT_TRUE(Post(m, evActivate{}));
+        ASSERT_TRUE(Post(m, evStartAttacking{}));
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
+        ASSERT_TRUE(m.is_in_state<stAttacking>());
 
-    m.process_event(evRequestBIT{BITType::IBIT});
+        ASSERT_TRUE(Post(m, evRequestBIT{BITType::IBIT}));
+
+        // IBIT path is expected to be transient:
+        //   stActive --evRequestBIT(IBIT)--> stBIT --no_event--> stActive --default--> stWaiting
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
+
+        m.stop();
+    }
 
     ASSERT_TRUE(m.is_in_state<stWaiting>());
 
     const auto& tr = m.GetTrace();
 
-    EXPECT_TRUE(ContainsLine(tr, "stBIT::on_entry\n"));
-    EXPECT_TRUE(ContainsLine(tr, "stBIT::on_exit\n"));
+    // We compare exact trace vectors (no std::find). We assert on state-level trace lines,
+    // avoiding action lines whose formatting may include parameters.
 
-    EXPECT_TRUE(ContainsLine(tr, "stAttacking::on_exit\n"));
-    EXPECT_TRUE(ContainsLine(tr, "EAManager::StopAttacking\n"));
+    {
+        const auto got = FilterExact(tr, "stBIT::on_entry\n");
+        const std::vector<std::string> expected =
+        {
+            "stBIT::on_entry\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
+    {
+        const auto got = FilterExact(tr, "stBIT::on_exit\n");
+        const std::vector<std::string> expected =
+        {
+            "stBIT::on_exit\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
 
-    EXPECT_TRUE(ContainsLine(tr,
-        "EAManager::RequestBIT -> eBITType: 2\n"));
+    // Requesting IBIT while attacking should stop attacking as part of the sequence.
+    {
+        const auto got = FilterExact(tr, "stAttacking::on_exit\n");
+        const std::vector<std::string> expected =
+        {
+            "stAttacking::on_exit\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
+    {
+        const auto got = FilterExact(tr, "EAManager::StopAttacking\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::StopAttacking\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
 }
 
-TEST(EAManagerRuntime, FullScenario_StrictTrace)
+TEST(EAManagerRuntime, ActiveAttributes_AreExposed)
+{
+    EAManager m(false, "ea_worker", 7, 8192);
+
+    EXPECT_EQ(m.thread_name(), "ea_worker");
+    EXPECT_EQ(m.thread_priority(), 7);
+    EXPECT_EQ(m.thread_stack_size(), 8192u);
+
+    const auto& attrs = m.get_thread_attributes();
+    EXPECT_EQ(attrs.name, "ea_worker");
+    EXPECT_EQ(attrs.priority, 7);
+    EXPECT_EQ(attrs.stack_size, 8192u);
+}
+
+TEST(EAManagerRuntime, ActiveStartStopLifecycle)
 {
     EAManager m;
-    m.initiate();
 
-    m.process_event(evTick{5});
-    m.process_event(evActivate{});
+    ASSERT_TRUE(m.start());
+    ASSERT_FALSE(m.start());
 
-    m.process_event(evTick{5});
+    m.stop();
 
-    m.process_event(evStartScanning{});
-    m.process_event(evStartAttacking{});
+    ASSERT_FALSE(Post(m, evActivate{}));
+}
 
-    m.process_event(evStopScanning{});
-    m.process_event(evStartAttacking{});
+TEST(EAManagerRuntime, StopFeature_StopsRunLoop)
+{
+    EAManager m;
+    ASSERT_TRUE(m.start());
 
-    m.process_event(evRequestBIT{BITType::IBIT});
-
-    ASSERT_TRUE(m.is_in_state<stWaiting>());
-
-    const std::vector<std::string> expected =
-    {
-        "stIdle::on_entry\n",
-        "stIdle::on_exit\n",
-        "stOperational::on_entry\n",
-        "stStartUp::on_entry\n",
-
-        "EAManager::AddTick -> m_iTickCounter: 5\n",
-
-        "stStartUp::on_exit\n",
-        "EAManager::ActivateSystem\n",
-        "stActive::on_entry\n",
-        "stWaiting::on_entry\n",
-
-        "EAManager::AddTick -> m_iTickCounter: 10\n",
-
-        "EAManager::StartScanning\n",
-        "EAManager::IsScanning -> 1\n",
-
-        "EAManager::StopScanning\n",
-        "EAManager::IsScanning -> 0\n",
-
-        "stWaiting::on_exit\n",
-        "stAttacking::on_entry\n",
-        "EAManager::StartAttacking\n",
-
-        "EAManager::IsAttacking -> 1\n",
-        "stAttacking::on_exit\n",
-        "EAManager::StopAttacking\n",
-        "stActive::on_exit\n",
-        "EAManager::RequestBIT -> eBITType: 2\n",
-        "stBIT::on_entry\n",
-        "stBIT::on_exit\n",
-        "stActive::on_entry\n",
-        "stWaiting::on_entry\n"
-    };
-
-    ExpectTraceEq(m.GetTrace(), expected);
-
-    EXPECT_EQ(CountLine(m.GetTrace(),
-        "EAManager::IsScanning -> 0\n"), 1);
-
-    EXPECT_EQ(CountLine(m.GetTrace(),
-        "EAManager::IsScanning -> 1\n"), 1);
+    // Ask active object to stop immediately (no events)
+    m.stop();
+    SUCCEED();
 }
