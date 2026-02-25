@@ -809,6 +809,11 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
         template <typename Event>
         void process_event_impl(const Event& ev)
         {
+            // Serialize all reads/writes of current_ and initiated_.
+            // We intentionally use a recursive mutex because transition code executes
+            // user callbacks (actions/on_entry/on_exit), and those callbacks may
+            // synchronously query state via is_in_state() on the same thread.
+            // A non-recursive mutex would deadlock in that re-entrant path.
             std::lock_guard<std::recursive_mutex> lock(state_mtx_);
             if (!initiated_) return;
 
@@ -1145,6 +1150,9 @@ private:
         // Current active leaf state
         variant_type current_{std::monostate{}};
         bool initiated_{false};
+        // Protects runtime state (current_/initiated_) across threads.
+        // Recursive to allow same-thread re-entrancy from user callbacks that call
+        // back into read APIs like is_in_state() during dispatch.
         mutable std::recursive_mutex state_mtx_{};
 
         // Event queue state (MPSC -> single consumer)
