@@ -420,3 +420,34 @@ TEST(EAManagerRuntime, StopFeature_StopsRunLoop)
     m.stop();
     SUCCEED();
 }
+
+TEST(EAManagerRuntime, ActiveWorkerThread_ConsumesEventsOnWorkerContext)
+{
+    EAManager m;
+    const auto caller_thread = std::this_thread::get_id();
+
+    EXPECT_EQ(m.constructed_thread_id(), caller_thread);
+
+    // No event has been consumed yet.
+    EXPECT_EQ(m.last_consumed_event_thread_id(), std::thread::id{});
+
+    ASSERT_TRUE(m.start());
+    ASSERT_TRUE(WaitUntil([&] { return m.has_worker_thread_id(); }));
+
+    const auto worker_thread = m.worker_thread_id();
+    EXPECT_NE(worker_thread, std::thread::id{});
+    EXPECT_NE(worker_thread, caller_thread);
+
+    // Starting the worker does not consume an event.
+    EXPECT_EQ(m.last_consumed_event_thread_id(), std::thread::id{});
+
+    ASSERT_TRUE(Post(m, evActivate{}));
+    ASSERT_TRUE(WaitUntil([&] {
+        return m.last_consumed_event_thread_id() != std::thread::id{};
+    }));
+
+    m.stop();
+
+    EXPECT_EQ(m.last_consumed_event_thread_id(), worker_thread);
+    EXPECT_NE(m.last_consumed_event_thread_id(), caller_thread);
+}
