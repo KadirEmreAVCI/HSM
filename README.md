@@ -190,3 +190,10 @@ To run the example executable (if built):
 - The project is header-only for the core library.
 - The active-object base class does **not** auto-stop in its destructor by design; derived machines should call `stop()` during teardown.
 - Thread priority and naming are best-effort and platform dependent.
+- **Important memory-safety note for queued events:** avoid event payload members that behave like raw pointers/references to stack memory (for example, `char*`, `T*`, `std::span`, `std::string_view`, references, or structs containing them) when events can outlive the producer scope. During asynchronous dispatch/context switching, such stack-backed addresses may become dangling and trigger undefined behavior.
+- Recommended ways to prevent this issue:
+  - Prefer **owning event payloads** (`std::string`, `std::vector`, value-type structs) so queued events carry their own storage.
+  - If an event must contain pointer-like members, implement custom **copy/move constructors and assignment operators** with deep-copy semantics so each queued event owns independent memory.
+  - If sharing large data is necessary, use **lifetime-managed heap ownership** (`std::shared_ptr<const T>` / `std::unique_ptr<T>`) and make ownership explicit.
+  - If low-level pointers are unavoidable, enforce a strict contract that pointed data has a lifetime longer than the entire event-processing window (e.g., static storage or externally synchronized owner).
+  - Treat event types as **thread-hop-safe DTOs**: value-semantics first, and no borrowed stack views across contexts.
