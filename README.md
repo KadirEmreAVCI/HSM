@@ -9,7 +9,7 @@ It is designed around four core building blocks:
 - `hsm::state` for defining reusable state behavior (`on_entry` / `on_exit`) with typed access to the owning machine.
 - `hsm::transition` family (`transition`, `internal_transition`, `default_transition`) for declarative transition tables.
 - `hsm::state_machine` for compile-time validated machine definition, event dispatch, hierarchy-aware bubbling, and transition execution.
-- `hsm::active` for running a machine in its own worker thread (POSIX pthreads on Linux-like systems, `std::thread` fallback on Windows).
+- `hsm::active` for running a machine in its own worker thread using `std::thread`.
 
 The result is a strongly typed state-machine style that catches many modeling errors at compile time while keeping runtime behavior lightweight and explicit.
 
@@ -100,15 +100,8 @@ What `state_machine` provides:
 
 Capabilities:
 
-- Configurable thread attributes:
-  - name
-  - priority
-  - stack size
 - `start()` invokes `initiate()` then `run()` on worker thread.
 - `stop()` requests machine stop and joins thread.
-- Cross-platform implementation:
-  - POSIX pthread path (`pthread_create`, `pthread_setname_np`, scheduling hints)
-  - Windows fallback with `std::thread`
 
 This is useful when your machine should consume asynchronous events from multiple producers.
 
@@ -189,7 +182,6 @@ To run the example executable (if built):
 
 - The project is header-only for the core library.
 - The active-object base class does **not** auto-stop in its destructor by design; derived machines should call `stop()` during teardown.
-- Thread priority and naming are best-effort and platform dependent.
 - **Important memory-safety note for queued events:** avoid event payload members that behave like raw pointers/references to stack memory (for example, `char*`, `T*`, `std::span`, `std::string_view`, references, or structs containing them) when events can outlive the producer scope. During asynchronous dispatch/context switching, such stack-backed addresses may become dangling and trigger undefined behavior.
 - Recommended ways to prevent this issue:
   - Prefer **owning event payloads** (`std::string`, `std::vector`, value-type structs) so queued events carry their own storage.

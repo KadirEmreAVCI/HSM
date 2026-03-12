@@ -202,11 +202,8 @@ public:
         stop();
     }
     
-    EAManager(bool blPrintTrace = false,
-              std::string thread_name = "ea_manager",
-              int thread_priority = 0,
-              std::size_t thread_stack_size = 0)
-        : hsm::active<EAManager>(std::move(thread_name), thread_priority, thread_stack_size)
+    explicit EAManager(bool blPrintTrace = false)
+        : hsm::active<EAManager>()
         , m_blPrintTrace(blPrintTrace)
     {}
 
