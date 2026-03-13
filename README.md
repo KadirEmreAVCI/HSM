@@ -53,11 +53,12 @@ HSM supports three transition row types:
 
 - **Internal transition**
   ```cpp
-  hsm::internal_transition<Src, Event, Action>
+  hsm::internal_transition<Src, Event, Action, Guard>
   ```
+  - Evaluates `Guard(machine, event)` (defaults to `hsm::always_true_guard`)
   - No state change
   - No exit/entry
-  - Runs `Action(machine, event)`
+  - Runs `Action(machine, event)` when guard succeeds
 
 - **Default transition**
   ```cpp
