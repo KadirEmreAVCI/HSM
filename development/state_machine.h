@@ -907,6 +907,7 @@ private:
                         typename T0::act{}(derived(), ev);
                         return true;
                     }
+                    return false; // Once an internal transition matches the source/event, no other transitions are tried - event if the guard fails. The event is "consumed" with no action taken.
                 }
                 else
                 {
