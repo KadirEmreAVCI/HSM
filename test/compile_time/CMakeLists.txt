@@ -26,6 +26,7 @@ add_compile_fail_test(ct_default_plus_internal              default_plus_interna
 add_compile_fail_test(ct_state_not_derived                  state_not_derived.cpp)
 add_compile_fail_test(ct_initial_state_not_in_var           initial_state_not_in_variant.cpp)
 add_compile_fail_test(ct_internal_action_bad_sig            internal_action_bad_sig.cpp)
+add_compile_fail_test(ct_internal_guard_bad_sig             internal_guard_bad_sig.cpp)
 add_compile_fail_test(ct_guard_bad_sig                      guard_bad_sig.cpp)
 add_compile_fail_test(ct_action_bad_sig                     action_bad_sig.cpp)
 add_compile_fail_test(ct_default_action_bad_sig             default_action_bad_sig.cpp)
