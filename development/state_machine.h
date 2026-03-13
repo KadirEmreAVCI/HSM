@@ -907,7 +907,6 @@ private:
                         typename T0::act{}(derived(), ev);
                         return true;
                     }
-                    return try_dispatch_in_table_for_source_impl<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
                 }
                 else
                 {
