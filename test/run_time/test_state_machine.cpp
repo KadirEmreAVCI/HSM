@@ -156,7 +156,7 @@ TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
     }
 }
 
-TEST(EAManagerRuntime, StartScanningInternalTransitionBlockedByGuard)
+TEST(EAManagerRuntime, StartScanningInternalTransitionAllowedWhenNotScanning)
 {
     EAManager m;
     ASSERT_TRUE(m.start());
@@ -169,10 +169,10 @@ TEST(EAManagerRuntime, StartScanningInternalTransitionBlockedByGuard)
         ASSERT_TRUE(Post(m, evStartScanning{}));
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-        // StartScanning internal transition uses IsScanning guard and should be blocked initially.
+        // StartScanning internal transition should run when not scanning.
         ASSERT_TRUE(Post(m, evStartAttacking{}));
-        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
-        ASSERT_TRUE(m.is_in_state<stAttacking>());
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ASSERT_TRUE(m.is_in_state<stWaiting>());
 
         m.stop();
     }
@@ -183,21 +183,33 @@ TEST(EAManagerRuntime, StartScanningInternalTransitionBlockedByGuard)
         const auto got = FilterExact(tr, "EAManager::IsScanning -> 0\n");
         const std::vector<std::string> expected =
         {
-            "EAManager::IsScanning -> 0\n",
             "EAManager::IsScanning -> 0\n"
         };
         EXPECT_EQ(got, expected);
     }
 
-    // Action must not execute when the internal-transition guard fails.
+    // Action must execute when the internal-transition guard succeeds.
     {
         const auto got = FilterExact(tr, "EAManager::StartScanning\n");
-        const std::vector<std::string> expected = {};
+        const std::vector<std::string> expected =
+        {
+            "EAManager::StartScanning\n"
+        };
+        EXPECT_EQ(got, expected);
+    }
+
+    // External start-attacking transition must be blocked while scanning.
+    {
+        const auto got = FilterExact(tr, "EAManager::IsScanning -> 1\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::IsScanning -> 1\n"
+        };
         EXPECT_EQ(got, expected);
     }
 }
 
-TEST(EAManagerRuntime, StopScanningInternalTransitionAllowedByNotScanningGuard)
+TEST(EAManagerRuntime, StopScanningInternalTransitionBlockedWhenNotScanning)
 {
     EAManager m;
     ASSERT_TRUE(m.start());
@@ -231,10 +243,7 @@ TEST(EAManagerRuntime, StopScanningInternalTransitionAllowedByNotScanningGuard)
 
     {
         const auto got = FilterExact(tr, "EAManager::StopScanning\n");
-        const std::vector<std::string> expected =
-        {
-            "EAManager::StopScanning\n"
-        };
+        const std::vector<std::string> expected = {};
         EXPECT_EQ(got, expected);
     }
 }

@@ -431,13 +431,13 @@ inline bool GuardEvStartAttacking::operator()(const EAManager& m, const evStartA
 inline bool GuardEvStartScanning::operator()(const EAManager& m, const evStartScanning&) const
 {
     m.NoteEventConsumedThread();
-    return m.IsScanning();
+    return !m.IsScanning();
 }
 
 inline bool GuardEvStopScanning::operator()(const EAManager& m, const evStopScanning&) const
 {
     m.NoteEventConsumedThread();
-    return !m.IsScanning();
+    return m.IsScanning();
 }
 
 inline bool GuardEvRequestBIT::operator()(const EAManager& m, const evRequestBIT& ev) const
