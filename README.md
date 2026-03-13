@@ -151,6 +151,22 @@ These checks significantly reduce runtime surprises and keep the model internall
 
 ---
 
+## Example
+
+The `example/` directory contains a complete implementation of an **EA Manager** (Enterprise Architecture Manager) state machine that demonstrates hierarchical state modeling with HSM.
+
+![EA Manager State Machine](example/ea_manager.png)
+
+This example showcases:
+- Hierarchical states with parent-child relationships
+- Multiple transition types (external, internal, default)
+- Event-driven behavior with guards and actions
+- Active object execution in a separate thread
+
+The state machine models an enterprise architecture management system that can be in various operational states, handling events like system updates, maintenance requests, and error conditions.
+
+---
+
 ## Minimal Usage Pattern
 
 1. Define events.
