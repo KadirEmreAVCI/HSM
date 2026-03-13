@@ -907,7 +907,6 @@ private:
                         typename T0::act{}(derived(), ev);
                         return true;
                     }
-                    return false; // Once an internal transition matches the source/event, no other transitions are tried - event if the guard fails. The event is "consumed" with no action taken.
                 }
                 else
                 {
@@ -917,8 +916,8 @@ private:
                         execute_external_transition<CurLeaf, typename T0::dst, typename T0::act>(curObj, ev);
                         return true;
                     }
-                    return try_dispatch_in_table_for_source_impl<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
                 }
+                return false; // Once a transition matches the source/event, no other transitions are tried - event if the guard fails. The event is "consumed" with no action taken.
             }
             else
             {
