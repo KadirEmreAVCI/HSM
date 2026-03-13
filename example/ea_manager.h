@@ -148,6 +148,16 @@ struct GuardEvStartAttacking
     bool operator()(const EAManager&, const evStartAttacking&) const;
 };
 
+struct GuardEvStartScanning
+{
+    bool operator()(const EAManager&, const evStartScanning&) const;
+};
+
+struct GuardEvStopScanning
+{
+    bool operator()(const EAManager&, const evStopScanning&) const;
+};
+
 struct GuardEvRequestBIT
 {
     bool operator()(const EAManager&, const evRequestBIT&) const;
@@ -173,8 +183,8 @@ class EAManager :
             hsm::transition<stActive, evRequestBIT, stBIT, ActionEvRequestBIT, GuardEvRequestBIT>,
             hsm::transition<stBIT, hsm::no_event, stActive>,
             hsm::internal_transition<stOperational, evTick, ActionEvTick>,
-            hsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning>,
-            hsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning>
+            hsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning, GuardEvStartScanning>,
+            hsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning, GuardEvStopScanning>
         >
     >
 {   
@@ -193,6 +203,8 @@ class EAManager :
     friend struct ActionEvRequestBIT;
 
     friend struct GuardEvStartAttacking;
+    friend struct GuardEvStartScanning;
+    friend struct GuardEvStopScanning;
     friend struct GuardEvRequestBIT;
 
 public:
@@ -411,6 +423,18 @@ inline void ActionEvRequestBIT::operator()(EAManager& m, const evRequestBIT& ev)
 // --------------------------------------------------
 
 inline bool GuardEvStartAttacking::operator()(const EAManager& m, const evStartAttacking&) const
+{
+    m.NoteEventConsumedThread();
+    return !m.IsScanning();
+}
+
+inline bool GuardEvStartScanning::operator()(const EAManager& m, const evStartScanning&) const
+{
+    m.NoteEventConsumedThread();
+    return m.IsScanning();
+}
+
+inline bool GuardEvStopScanning::operator()(const EAManager& m, const evStopScanning&) const
 {
     m.NoteEventConsumedThread();
     return !m.IsScanning();

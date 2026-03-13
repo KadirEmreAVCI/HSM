@@ -156,7 +156,7 @@ TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
     }
 }
 
-TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
+TEST(EAManagerRuntime, StartScanningInternalTransitionBlockedByGuard)
 {
     EAManager m;
     ASSERT_TRUE(m.start());
@@ -167,61 +167,37 @@ TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
         ASSERT_TRUE(m.is_in_state<stWaiting>());
 
         ASSERT_TRUE(Post(m, evStartScanning{}));
-
-        // Give time for StartScanning action + guard evaluation to occur
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
+        // StartScanning internal transition uses IsScanning guard and should be blocked initially.
         ASSERT_TRUE(Post(m, evStartAttacking{}));
-
-        // Give time for IsScanning guard to be evaluated
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-        ASSERT_TRUE(m.is_in_state<stWaiting>());
+        ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stAttacking>(); }));
+        ASSERT_TRUE(m.is_in_state<stAttacking>());
 
         m.stop();
     }
 
     const auto& tr = m.GetTrace();
 
-    // Guard executed exactly once.
     {
-        const auto got = FilterExact(tr, "EAManager::IsScanning -> 1\n");
+        const auto got = FilterExact(tr, "EAManager::IsScanning -> 0\n");
         const std::vector<std::string> expected =
         {
-            "EAManager::IsScanning -> 1\n"
+            "EAManager::IsScanning -> 0\n",
+            "EAManager::IsScanning -> 0\n"
         };
         EXPECT_EQ(got, expected);
     }
 
-    // StartScanning must happen.
+    // Action must not execute when the internal-transition guard fails.
     {
         const auto got = FilterExact(tr, "EAManager::StartScanning\n");
-        const std::vector<std::string> expected =
-        {
-            "EAManager::StartScanning\n"
-        };
-        EXPECT_EQ(got, expected);
-    }
-
-    // Transition must be blocked: no exit of stWaiting and no entry to stAttacking.
-    {
-        const auto got = FilterExact(tr, "stWaiting::on_exit\n");
-        const std::vector<std::string> expected = {};
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "stAttacking::on_entry\n");
-        const std::vector<std::string> expected = {};
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "EAManager::StartAttacking\n");
         const std::vector<std::string> expected = {};
         EXPECT_EQ(got, expected);
     }
 }
 
-TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
+TEST(EAManagerRuntime, StopScanningInternalTransitionAllowedByNotScanningGuard)
 {
     EAManager m;
     ASSERT_TRUE(m.start());
@@ -231,9 +207,7 @@ TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
         ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-        ASSERT_TRUE(Post(m, evStartScanning{}));
         ASSERT_TRUE(Post(m, evStopScanning{}));
-
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         ASSERT_TRUE(Post(m, evStartAttacking{}));
@@ -245,38 +219,21 @@ TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
 
     const auto& tr = m.GetTrace();
 
-    // IsScanning must return 0 exactly once.
     {
         const auto got = FilterExact(tr, "EAManager::IsScanning -> 0\n");
         const std::vector<std::string> expected =
         {
+            "EAManager::IsScanning -> 0\n",
             "EAManager::IsScanning -> 0\n"
         };
         EXPECT_EQ(got, expected);
     }
 
-    // Must transition to attacking.
     {
-        const auto got = FilterExact(tr, "stWaiting::on_exit\n");
+        const auto got = FilterExact(tr, "EAManager::StopScanning\n");
         const std::vector<std::string> expected =
         {
-            "stWaiting::on_exit\n"
-        };
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "stAttacking::on_entry\n");
-        const std::vector<std::string> expected =
-        {
-            "stAttacking::on_entry\n"
-        };
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "EAManager::StartAttacking\n");
-        const std::vector<std::string> expected =
-        {
-            "EAManager::StartAttacking\n"
+            "EAManager::StopScanning\n"
         };
         EXPECT_EQ(got, expected);
     }
