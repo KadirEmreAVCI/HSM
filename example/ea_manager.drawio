@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.5.2 Chrome/142.0.7444.265 Electron/39.6.1 Safari/537.36" version="29.5.2">
   <diagram name="Page-1" id="zxrvl4Z3RIDztxEIa1eq">
-    <mxGraphModel dx="2201" dy="795" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="1472" dy="366" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -39,12 +39,12 @@
           </mxGeometry>
         </mxCell>
         <mxCell id="X3Z8Yd8Wa8_PJNLBc0tX-21" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;" value="stWaiting" vertex="1">
-          <mxGeometry height="130" width="230" x="-360" y="515" as="geometry" />
+          <mxGeometry height="130" width="280" x="-360" y="515" as="geometry" />
         </mxCell>
         <mxCell id="X3Z8Yd8Wa8_PJNLBc0tX-22" parent="1" style="html=1;align=center;verticalAlign=top;rounded=1;absoluteArcSize=1;arcSize=10;dashed=0;whiteSpace=wrap;" value="stAttacking" vertex="1">
           <mxGeometry height="130" width="230" x="130" y="515" as="geometry" />
         </mxCell>
-        <mxCell id="X3Z8Yd8Wa8_PJNLBc0tX-23" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=bottom;rounded=0;" value="evStartScanning/StartScanning()&lt;div&gt;evStopScanning/StopScanning()&lt;/div&gt;" vertex="1">
+        <mxCell id="X3Z8Yd8Wa8_PJNLBc0tX-23" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=bottom;rounded=0;" value="evStartScanning/[!IsScanning()]/StartScanning()&lt;div&gt;evStopScanning/&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;[IsScanning()]/&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;StopScanning()&lt;/span&gt;&lt;/div&gt;" vertex="1">
           <mxGeometry height="30" width="230" x="-360" y="615" as="geometry" />
         </mxCell>
         <mxCell id="X3Z8Yd8Wa8_PJNLBc0tX-26" parent="1" style="ellipse;html=1;shape=endState;fillColor=strokeColor;" value="" vertex="1">

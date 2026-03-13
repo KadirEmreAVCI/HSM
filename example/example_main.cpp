@@ -10,7 +10,7 @@
 
 int main()
 {
-    EAManager rEAManager(true, "ea_manager_thread", 5, 4096); // Enable trace output
+    EAManager rEAManager(true); // Enable trace output
 
     const auto mainThreadId = std::this_thread::get_id();
 

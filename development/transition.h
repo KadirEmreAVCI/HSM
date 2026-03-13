@@ -50,17 +50,23 @@ namespace hsm
 
     // --------------------------------------------------
     // Internal transition:
-    // - no guard
+    // - optional guard
     // - no exit/entry
     // - no state change
     // - action(machine,event)
     // --------------------------------------------------
-    template <typename SrcState, typename Event, typename Action>
+    template <
+        typename SrcState,
+        typename Event,
+        typename Action,
+        typename Guard = always_true_guard
+    >
     struct internal_transition
     {
-        using src = SrcState;
-        using ev  = Event;
-        using act = Action;
+        using src   = SrcState;
+        using ev    = Event;
+        using act   = Action;
+        using guard = Guard;
     };
 
     // --------------------------------------------------
@@ -108,16 +114,17 @@ namespace hsm
     // Internal transition trait
     // Provides:
     //   is_internal_transition<T>::value
-    //   is_internal_transition<T>::src, ev, act (only when value==true)
+    //   is_internal_transition<T>::src, ev, act, guard (only when value==true)
     template <typename T>
     struct is_internal_transition : std::false_type {};
 
-    template <typename S, typename E, typename A>
-    struct is_internal_transition<internal_transition<S, E, A>> : std::true_type
+    template <typename S, typename E, typename A, typename G>
+    struct is_internal_transition<internal_transition<S, E, A, G>> : std::true_type
     {
-        using src = S;
-        using ev  = E;
-        using act = A;
+        using src   = S;
+        using ev    = E;
+        using act   = A;
+        using guard = G;
     };
 
     template <typename T>

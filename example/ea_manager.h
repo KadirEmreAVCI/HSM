@@ -148,6 +148,16 @@ struct GuardEvStartAttacking
     bool operator()(const EAManager&, const evStartAttacking&) const;
 };
 
+struct GuardEvStartScanning
+{
+    bool operator()(const EAManager&, const evStartScanning&) const;
+};
+
+struct GuardEvStopScanning
+{
+    bool operator()(const EAManager&, const evStopScanning&) const;
+};
+
 struct GuardEvRequestBIT
 {
     bool operator()(const EAManager&, const evRequestBIT&) const;
@@ -173,8 +183,8 @@ class EAManager :
             hsm::transition<stActive, evRequestBIT, stBIT, ActionEvRequestBIT, GuardEvRequestBIT>,
             hsm::transition<stBIT, hsm::no_event, stActive>,
             hsm::internal_transition<stOperational, evTick, ActionEvTick>,
-            hsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning>,
-            hsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning>
+            hsm::internal_transition<stWaiting, evStartScanning, ActionEvStartScanning, GuardEvStartScanning>,
+            hsm::internal_transition<stWaiting, evStopScanning, ActionEvStopScanning, GuardEvStopScanning>
         >
     >
 {   
@@ -193,6 +203,8 @@ class EAManager :
     friend struct ActionEvRequestBIT;
 
     friend struct GuardEvStartAttacking;
+    friend struct GuardEvStartScanning;
+    friend struct GuardEvStopScanning;
     friend struct GuardEvRequestBIT;
 
 public:
@@ -202,11 +214,8 @@ public:
         stop();
     }
     
-    EAManager(bool blPrintTrace = false,
-              std::string thread_name = "ea_manager",
-              int thread_priority = 0,
-              std::size_t thread_stack_size = 0)
-        : hsm::active<EAManager>(std::move(thread_name), thread_priority, thread_stack_size)
+    explicit EAManager(bool blPrintTrace = false)
+        : hsm::active<EAManager>()
         , m_blPrintTrace(blPrintTrace)
     {}
 
@@ -417,6 +426,18 @@ inline bool GuardEvStartAttacking::operator()(const EAManager& m, const evStartA
 {
     m.NoteEventConsumedThread();
     return !m.IsScanning();
+}
+
+inline bool GuardEvStartScanning::operator()(const EAManager& m, const evStartScanning&) const
+{
+    m.NoteEventConsumedThread();
+    return !m.IsScanning();
+}
+
+inline bool GuardEvStopScanning::operator()(const EAManager& m, const evStopScanning&) const
+{
+    m.NoteEventConsumedThread();
+    return m.IsScanning();
 }
 
 inline bool GuardEvRequestBIT::operator()(const EAManager& m, const evRequestBIT& ev) const

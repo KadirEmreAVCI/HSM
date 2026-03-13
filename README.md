@@ -9,7 +9,7 @@ It is designed around four core building blocks:
 - `hsm::state` for defining reusable state behavior (`on_entry` / `on_exit`) with typed access to the owning machine.
 - `hsm::transition` family (`transition`, `internal_transition`, `default_transition`) for declarative transition tables.
 - `hsm::state_machine` for compile-time validated machine definition, event dispatch, hierarchy-aware bubbling, and transition execution.
-- `hsm::active` for running a machine in its own worker thread (POSIX pthreads on Linux-like systems, `std::thread` fallback on Windows).
+- `hsm::active` for running a machine in its own worker thread using `std::thread`.
 
 The result is a strongly typed state-machine style that catches many modeling errors at compile time while keeping runtime behavior lightweight and explicit.
 
@@ -53,11 +53,12 @@ HSM supports three transition row types:
 
 - **Internal transition**
   ```cpp
-  hsm::internal_transition<Src, Event, Action>
+  hsm::internal_transition<Src, Event, Action, Guard>
   ```
+  - Evaluates `Guard(machine, event)` (defaults to `hsm::always_true_guard`)
   - No state change
   - No exit/entry
-  - Runs `Action(machine, event)`
+  - Runs `Action(machine, event)` when guard succeeds
 
 - **Default transition**
   ```cpp
@@ -100,15 +101,8 @@ What `state_machine` provides:
 
 Capabilities:
 
-- Configurable thread attributes:
-  - name
-  - priority
-  - stack size
 - `start()` invokes `initiate()` then `run()` on worker thread.
 - `stop()` requests machine stop and joins thread.
-- Cross-platform implementation:
-  - POSIX pthread path (`pthread_create`, `pthread_setname_np`, scheduling hints)
-  - Windows fallback with `std::thread`
 
 This is useful when your machine should consume asynchronous events from multiple producers.
 
@@ -157,6 +151,22 @@ These checks significantly reduce runtime surprises and keep the model internall
 
 ---
 
+## Example
+
+The `example/` directory contains a complete implementation of an **EA Manager** (Enterprise Architecture Manager) state machine that demonstrates hierarchical state modeling with HSM.
+
+![EA Manager State Machine](example/ea_manager.png)
+
+This example showcases:
+- Hierarchical states with parent-child relationships
+- Multiple transition types (external, internal, default)
+- Event-driven behavior with guards and actions
+- Active object execution in a separate thread
+
+The state machine models an enterprise architecture management system that can be in various operational states, handling events like system updates, maintenance requests, and error conditions.
+
+---
+
 ## Minimal Usage Pattern
 
 1. Define events.
@@ -189,4 +199,10 @@ To run the example executable (if built):
 
 - The project is header-only for the core library.
 - The active-object base class does **not** auto-stop in its destructor by design; derived machines should call `stop()` during teardown.
-- Thread priority and naming are best-effort and platform dependent.
+- **Important memory-safety note for queued events:** avoid event payload members that behave like raw pointers/references to stack memory (for example, `char*`, `T*`, `std::span`, `std::string_view`, references, or structs containing them) when events can outlive the producer scope. During asynchronous dispatch/context switching, such stack-backed addresses may become dangling and trigger undefined behavior.
+- Recommended ways to prevent this issue:
+  - Prefer **owning event payloads** (`std::string`, `std::vector`, value-type structs) so queued events carry their own storage.
+  - If an event must contain pointer-like members, implement custom **copy/move constructors and assignment operators** with deep-copy semantics so each queued event owns independent memory.
+  - If sharing large data is necessary, use **lifetime-managed heap ownership** (`std::shared_ptr<const T>` / `std::unique_ptr<T>`) and make ownership explicit.
+  - If low-level pointers are unavoidable, enforce a strict contract that pointed data has a lifetime longer than the entire event-processing window (e.g., static storage or externally synchronized owner).
+  - Treat event types as **thread-hop-safe DTOs**: value-semantics first, and no borrowed stack views across contexts.

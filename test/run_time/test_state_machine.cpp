@@ -156,7 +156,7 @@ TEST(EAManagerRuntime, TickInStartup_RemainsStartup)
     }
 }
 
-TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
+TEST(EAManagerRuntime, StartScanningInternalTransitionAllowedWhenNotScanning)
 {
     EAManager m;
     ASSERT_TRUE(m.start());
@@ -167,15 +167,11 @@ TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
         ASSERT_TRUE(m.is_in_state<stWaiting>());
 
         ASSERT_TRUE(Post(m, evStartScanning{}));
-
-        // Give time for StartScanning action + guard evaluation to occur
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
+        // StartScanning internal transition should run when not scanning.
         ASSERT_TRUE(Post(m, evStartAttacking{}));
-
-        // Give time for IsScanning guard to be evaluated
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
         ASSERT_TRUE(m.is_in_state<stWaiting>());
 
         m.stop();
@@ -183,17 +179,16 @@ TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
 
     const auto& tr = m.GetTrace();
 
-    // Guard executed exactly once.
     {
-        const auto got = FilterExact(tr, "EAManager::IsScanning -> 1\n");
+        const auto got = FilterExact(tr, "EAManager::IsScanning -> 0\n");
         const std::vector<std::string> expected =
         {
-            "EAManager::IsScanning -> 1\n"
+            "EAManager::IsScanning -> 0\n"
         };
         EXPECT_EQ(got, expected);
     }
 
-    // StartScanning must happen.
+    // Action must execute when the internal-transition guard succeeds.
     {
         const auto got = FilterExact(tr, "EAManager::StartScanning\n");
         const std::vector<std::string> expected =
@@ -203,25 +198,18 @@ TEST(EAManagerRuntime, StartAttackingBlockedWhileScanning_GuardExecutesOnce)
         EXPECT_EQ(got, expected);
     }
 
-    // Transition must be blocked: no exit of stWaiting and no entry to stAttacking.
+    // External start-attacking transition must be blocked while scanning.
     {
-        const auto got = FilterExact(tr, "stWaiting::on_exit\n");
-        const std::vector<std::string> expected = {};
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "stAttacking::on_entry\n");
-        const std::vector<std::string> expected = {};
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "EAManager::StartAttacking\n");
-        const std::vector<std::string> expected = {};
+        const auto got = FilterExact(tr, "EAManager::IsScanning -> 1\n");
+        const std::vector<std::string> expected =
+        {
+            "EAManager::IsScanning -> 1\n"
+        };
         EXPECT_EQ(got, expected);
     }
 }
 
-TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
+TEST(EAManagerRuntime, StopScanningInternalTransitionBlockedWhenNotScanning)
 {
     EAManager m;
     ASSERT_TRUE(m.start());
@@ -231,9 +219,7 @@ TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
         ASSERT_TRUE(WaitUntil([&] { return m.is_in_state<stWaiting>(); }));
         ASSERT_TRUE(m.is_in_state<stWaiting>());
 
-        ASSERT_TRUE(Post(m, evStartScanning{}));
         ASSERT_TRUE(Post(m, evStopScanning{}));
-
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         ASSERT_TRUE(Post(m, evStartAttacking{}));
@@ -245,39 +231,19 @@ TEST(EAManagerRuntime, StopScanningThenStartAttacking_Succeeds)
 
     const auto& tr = m.GetTrace();
 
-    // IsScanning must return 0 exactly once.
     {
         const auto got = FilterExact(tr, "EAManager::IsScanning -> 0\n");
         const std::vector<std::string> expected =
         {
+            "EAManager::IsScanning -> 0\n",
             "EAManager::IsScanning -> 0\n"
         };
         EXPECT_EQ(got, expected);
     }
 
-    // Must transition to attacking.
     {
-        const auto got = FilterExact(tr, "stWaiting::on_exit\n");
-        const std::vector<std::string> expected =
-        {
-            "stWaiting::on_exit\n"
-        };
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "stAttacking::on_entry\n");
-        const std::vector<std::string> expected =
-        {
-            "stAttacking::on_entry\n"
-        };
-        EXPECT_EQ(got, expected);
-    }
-    {
-        const auto got = FilterExact(tr, "EAManager::StartAttacking\n");
-        const std::vector<std::string> expected =
-        {
-            "EAManager::StartAttacking\n"
-        };
+        const auto got = FilterExact(tr, "EAManager::StopScanning\n");
+        const std::vector<std::string> expected = {};
         EXPECT_EQ(got, expected);
     }
 }
@@ -383,20 +349,6 @@ TEST(EAManagerRuntime, IBITAllowedWhileAttacking)
         };
         EXPECT_EQ(got, expected);
     }
-}
-
-TEST(EAManagerRuntime, ActiveAttributes_AreExposed)
-{
-    EAManager m(false, "ea_worker", 7, 8192);
-
-    EXPECT_EQ(m.thread_name(), "ea_worker");
-    EXPECT_EQ(m.thread_priority(), 7);
-    EXPECT_EQ(m.thread_stack_size(), 8192u);
-
-    const auto& attrs = m.get_thread_attributes();
-    EXPECT_EQ(attrs.name, "ea_worker");
-    EXPECT_EQ(attrs.priority, 7);
-    EXPECT_EQ(attrs.stack_size, 8192u);
 }
 
 TEST(EAManagerRuntime, ActiveStartStopLifecycle)

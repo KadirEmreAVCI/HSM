@@ -183,10 +183,12 @@ namespace hsm
     };
 
     // Internal transition: action(M&, Ev const&) -> void
-    template <typename Machine, typename Src, typename Ev, typename Act>
-    struct validate_transition<Machine, internal_transition<Src, Ev, Act>>
+    template <typename Machine, typename Src, typename Ev, typename Act, typename Guard>
+    struct validate_transition<Machine, internal_transition<Src, Ev, Act, Guard>>
     {
-        static constexpr bool value = std::is_invocable_r_v<void, Act, Machine&, const Ev&>;
+        static constexpr bool value =
+            std::is_invocable_r_v<bool, Guard, Machine&, const Ev&> &&
+            std::is_invocable_r_v<void, Act, Machine&, const Ev&>;
     };
 
     // Default transition: action(M&) -> void
@@ -236,8 +238,8 @@ namespace hsm
     };
 
     // internal transition -> no destination state
-    template <typename Variant, typename Src, typename Ev, typename Act>
-    struct validate_dst_state<Variant, internal_transition<Src, Ev, Act>>
+    template <typename Variant, typename Src, typename Ev, typename Act, typename Guard>
+    struct validate_dst_state<Variant, internal_transition<Src, Ev, Act, Guard>>
     {
         static constexpr bool value = true;
     };
@@ -660,7 +662,7 @@ template <typename DerivedMachine, typename InitialState, typename StatesVariant
         HSM_STATIC_ASSERT((validate_transition_table<derived_type, table_type>::value),
             "[Signature] Invalid guard/action signatures.\n"
             " - transition: guard(M&, Ev const&) -> bool, action(M&, Ev const&) -> void\n"
-            " - internal_transition: action(M&, Ev const&) -> void\n"
+            " - internal_transition: guard(M&, Ev const&) -> bool, action(M&, Ev const&) -> void\n"
             " - default_transition: action(M&) -> void");
 
         HSM_STATIC_ASSERT((validate_transition_table_destinations<variant_type, table_type>::value),
@@ -899,8 +901,12 @@ private:
                 // Internal: action(machine,event)
                 if constexpr (is_internal_transition<T0>::value)
                 {
-                    typename T0::act{}(derived(), ev);
-                    return true;
+                    typename T0::guard g{};
+                    if (g(derived(), ev))
+                    {
+                        typename T0::act{}(derived(), ev);
+                        return true;
+                    }
                 }
                 else
                 {
@@ -910,8 +916,8 @@ private:
                         execute_external_transition<CurLeaf, typename T0::dst, typename T0::act>(curObj, ev);
                         return true;
                     }
-                    return try_dispatch_in_table_for_source_impl<CurLeaf, SrcCandidate, Event>(transition_table<Rest...>{}, curObj, ev);
                 }
+                return false; // Once a transition matches the source/event, no other transitions are tried - event if the guard fails. The event is "consumed" with no action taken.
             }
             else
             {
